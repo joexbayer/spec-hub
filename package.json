@@ -1,0 +1,23 @@
+{
+  "name": "spec-hub",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/* dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "audit": "pnpm audit --prod --audit-level=high",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm run audit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "typescript": "7.0.2"
+  }
+}

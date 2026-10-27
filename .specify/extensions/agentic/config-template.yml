@@ -1,0 +1,96 @@
+# Agentic Engineering extension configuration
+# Installed to .specify/extensions/agentic/agentic-config.yml — edit freely.
+
+quickfix:
+  # Any path matching a glob here forces the quickfix lane to reject and escalate
+  # to the full pipeline. Sensitive surfaces do not get the express lane.
+  protected_globs:
+    - "**/migrations/**"
+    - "**/auth/**"
+    - "**/security/**"
+    - "**/*.sql"
+    - "**/api/**/route.*"
+    - "**/.env*"
+    - "**/Dockerfile"
+    - "**/*.yml"
+    - "**/*.yaml"
+
+  # Hard limits. Exceeding any of these is a rejection, not a warning.
+  max_files: 2
+  max_lines_changed: 20
+  allowed_commit_types:
+    - fix
+    - docs
+    - style
+    - chore
+    - typo
+    - refactor # mechanical only — no behaviour change
+
+restraint:
+  # How hard the decision ladder is enforced before code is written.
+  #   lite  — nudge away from obvious over-building; judgement calls stay with the author
+  #   full  — enforce the ladder on every new construct; flag single-caller abstractions
+  #   ultra — every new file, dependency, and layer justified in writing, and
+  #           necessity findings become BLOCKERs at verify
+  # Prototypes tolerate more; load-bearing production code less.
+  intensity: "full"
+
+security:
+  # OWASP ASVS 5.0 verification level: 1 (entry) | 2 (default) | 3 (high assurance).
+  # "We follow ASVS" without a level named means nothing.
+  asvs_level: 2
+
+  # Walk the OWASP Top 10:2025 explicitly in the security and verify passes.
+  owasp_review: true
+
+  # Regulatory regimes that actually apply. Empty = none; the commands will not
+  # invent obligations the project has not claimed.
+  # Recognised: cra | nis2 | gdpr | dora | nsm
+  regimes: []
+
+  # The reference both `security` and `verify` read. Edit that file to match your
+  # real obligations — your edited version wins over the shipped defaults.
+  baseline: ".specify/extensions/agentic/templates/security-baseline.md"
+
+verify:
+  # Consecutive rounds that must surface nothing new before the hunt stops.
+  # Convergence, not a target count — a fixed count stops early or pads.
+  dry_rounds: 2
+  # Independent refutation attempts per finding, where the harness supports
+  # concurrent subagents. A finding survives only if a majority fail to refute it.
+  refutation_votes: 3
+
+# Agent routing — the one place that maps task capability tags to agents.
+# Tasks carry @routine / @implementation / @reasoning; this block says which
+# agent runs each. Values are agent PROFILE NAMES defined in your harness
+# (opencode.json / .opencode/agents/, .claude/agents/, ...), never provider or
+# model IDs: provider, model and thinking budget belong in that profile, so
+# changing them never touches tasks.md.
+#
+# Leave `agent` empty (~) to run that capability in the orchestrator session,
+# which is the behaviour before routing existed. A configured agent that is
+# missing, or cannot run as a subagent, stops `implement` with a ROUTING_* error;
+# nothing is silently substituted. See docs/routing.md.
+routing:
+  roles:
+    routine:          # bounded lookups, extraction, mechanical work
+      agent: ~
+    implementation:   # specified implementation, tests, documentation
+      agent: ~
+    reasoning:        # ambiguous work, architecture, difficult analysis
+      agent: ~
+      escalate_to: ~  # optional: the only agent a failed task may move to
+  # Escalations per task, counted against the 3-retry budget. Only roles with
+  # an `escalate_to` ever escalate.
+  max_escalations: 1
+
+promotion:
+  # Occurrences of a failure category before it is promoted to a constitution rule.
+  # Filters real patterns from one-off noise.
+  threshold: 3
+
+paths:
+  retrospectives: "docs/retrospectives"
+  skills: "skills/extracted"
+  known_failures: ".specify/memory/known-failures.md"
+  constitution: ".specify/memory/constitution.md"

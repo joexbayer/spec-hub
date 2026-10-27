@@ -1,0 +1,63 @@
+# Kamal 2 deployment of one Spec Hub. The file is the same for every installation: everything
+# site-specific (hostname, server, SSH, admins) comes from the environment, which `bin/kamal` loads
+# from `.env.deploy` (see `.env.deploy.example` and docs/self-host.md).
+<% need = ->(k) { v = ENV[k].to_s; v.empty? ? abort("#{k} is not set: copy .env.deploy.example to .env.deploy and fill it in") : v } %>
+service: spec-hub
+image: spec-hub
+
+servers:
+  web:
+    hosts:
+      - <%= need["SPEC_HUB_SERVER"] %>
+    options:
+      memory: 512m
+      security-opt: no-new-privileges
+
+ssh:
+  user: <%= ENV.fetch("SPEC_HUB_SSH_USER", "root") %>
+  port: <%= ENV.fetch("SPEC_HUB_SSH_PORT", "22") %>
+
+# kamal-proxy terminates TLS with a Let's Encrypt certificate for the host.
+proxy:
+  ssl: true
+  host: <%= need["SPEC_HUB_HOST"] %>
+  app_port: 3000
+  healthcheck:
+    path: /healthz
+
+# Kamal's local registry: the image is built here and pushed to the server over the SSH tunnel,
+# so no external registry or registry credentials are needed.
+registry:
+  server: localhost:5555
+
+builder:
+  arch: amd64
+
+env:
+  clear:
+    PUBLIC_URL: https://<%= need["SPEC_HUB_HOST"] %>
+    GITHUB_CLIENT_ID: <%= need["GITHUB_CLIENT_ID"] %>
+    SPEC_HUB_ADMINS: "<%= need["SPEC_HUB_ADMINS"] %>"
+    # kamal-proxy with ssl replaces any client-sent X-Forwarded-For with the one address it saw.
+    TRUSTED_IP_HEADER: x-forwarded-for
+  secret:
+    - DATABASE_URL
+    - BETTER_AUTH_SECRET
+    - GITHUB_CLIENT_SECRET
+
+accessories:
+  db:
+    # tag kept for readability; the digest is what is pulled. Refresh deliberately (same as docker-compose.yml).
+    image: postgres:18@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
+    host: <%= need["SPEC_HUB_SERVER"] %>
+    # No port is published: the hub reaches it as spec-hub-db on Kamal's network.
+    env:
+      clear:
+        POSTGRES_DB: spechub
+        POSTGRES_USER: spechub
+      secret:
+        - POSTGRES_PASSWORD
+    directories:
+      - data:/var/lib/postgresql
+    options:
+      memory: 512m

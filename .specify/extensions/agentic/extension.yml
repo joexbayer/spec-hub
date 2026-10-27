@@ -1,0 +1,117 @@
+schema_version: "1.0"
+
+extension:
+  id: "agentic"
+  name: "Agentic Engineering"
+  version: "3.0.0"
+  description: "Restraint ladder, security requirements from OWASP Top 10:2025 and a regulatory baseline, trust-but-verify review gate, retrospectives, skill extraction, debt ledger, and a quickfix fast lane — the compounding layer around the core spec-kit pipeline."
+  category: "process"
+  effect: "read-write"
+  author: "joexbayer"
+  repository: "<agentic-extension-repo-url>"
+  license: "MIT"
+  homepage: "https://wiki.joexbayer.dev/wiki/agentic-engineering"
+
+requires:
+  speckit_version: ">=0.14.0"
+  commands:
+    - "speckit.specify"
+    - "speckit.plan"
+    - "speckit.tasks"
+    - "speckit.implement"
+
+provides:
+  commands:
+    - name: "speckit.agentic.verify"
+      file: "commands/verify.md"
+      description: "Adversarial review of the implementation against spec, plan, and tasks"
+
+    - name: "speckit.agentic.retrospective"
+      file: "commands/retrospective.md"
+      description: "Structured post-mortem producing constitution amendments and skill candidates"
+
+    - name: "speckit.agentic.skills"
+      file: "commands/skills.md"
+      description: "Promote SKILLS_TO_EXTRACT candidates from the latest retrospective into skill files"
+
+    - name: "speckit.agentic.quickfix"
+      file: "commands/quickfix.md"
+      description: "Fast-track lane for small, low-risk changes that bypasses the full pipeline"
+
+    - name: "speckit.agentic.restraint"
+      file: "commands/restraint.md"
+      description: "Apply the restraint ladder before code is written — rule out the cheap answers first"
+
+    - name: "speckit.agentic.audit"
+      file: "commands/audit.md"
+      description: "Whole-repository audit for over-engineering and what can be deleted"
+
+    - name: "speckit.agentic.debt"
+      file: "commands/debt.md"
+      description: "Harvest agentic:debt markers into a tracked ledger of deliberate shortcuts"
+
+    - name: "speckit.agentic.security"
+      file: "commands/security.md"
+      description: "Derive security requirements from the baseline and append them to tasks.md before implementation"
+
+  config:
+    - name: "agentic-config.yml"
+      template: "config-template.yml"
+      description: "Quickfix guard rails, capability-to-agent routing, and promotion threshold"
+      required: false
+
+hooks:
+  after_plan:
+    command: "speckit.agentic.restraint"
+    optional: true
+    prompt: "Run the restraint ladder against this plan before writing tasks?"
+    description: "Catch over-building at the plan, before any code exists"
+
+  after_tasks:
+    command: "speckit.agentic.security"
+    optional: true
+    prompt: "Derive security tasks for this feature before implementing?"
+    description: "Security controls as real tasks, not review comments"
+
+  after_implement:
+    command: "speckit.agentic.verify"
+    optional: true
+    prompt: "Run the adversarial verify gate on this implementation?"
+    description: "Independent review between implementation and merge"
+
+tags:
+  - "review"
+  - "verification"
+  - "retrospective"
+  - "restraint"
+  - "security"
+  - "owasp"
+  - "process"
+  - "skills"
+
+defaults:
+  quickfix:
+    max_files: 2
+    max_lines_changed: 20
+  restraint:
+    # lite | full | ultra — how hard the ladder is enforced.
+    intensity: "full"
+  verify:
+    # Consecutive empty rounds before the hunt is considered converged.
+    dry_rounds: 2
+  security:
+    asvs_level: 2
+    owasp_review: true
+    regimes: []
+  routing:
+    roles:
+      routine: { agent: null }
+      implementation: { agent: null }
+      reasoning: { agent: null, escalate_to: null }
+    max_escalations: 1
+  promotion:
+    # A failure category must recur this many times before it becomes a constitution rule.
+    threshold: 3
+  paths:
+    retrospectives: "docs/retrospectives"
+    skills: "skills/extracted"

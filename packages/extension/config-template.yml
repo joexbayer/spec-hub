@@ -1,0 +1,4 @@
+# Spec Hub link setting. Commit this file. Flat key: value lines only.
+hub_url:
+project:
+# remote: origin

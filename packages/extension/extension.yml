@@ -1,0 +1,26 @@
+schema_version: "1.0"
+
+extension:
+  id: "spec-hub"
+  name: "Spec Hub"
+  version: "0.1.0"
+  description: "Silent reporter that shows a Spec Kit team's in-flight features on a shared Spec Hub board."
+  category: "process"
+  effect: "read-only"
+  author: "joexbayer"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=1.1.0"
+
+provides:
+  scripts:
+    - name: "spec-hub"
+      file: "scripts/spec-hub"
+      description: "Connect this clone to the hub, check status, and report feature work from git hooks"
+      runtimes: ["bash"]
+  config:
+    - name: "spec-hub-config.yml"
+      template: "config-template.yml"
+      description: "Links this repository to a project on the hub"
+      required: true

@@ -1,0 +1,41 @@
+schema_version: "1.0"
+
+preset:
+  id: "agentic"
+  name: "Agentic Engineering Workflow"
+  version: "2.0.0"
+  description: "Core pipeline with provider-neutral capability routing, parallel waves, pre-fetched context injection, and a pre-task design review gate."
+  author: "joexbayer"
+  repository: "<agentic-extension-repo-url>"
+  license: "MIT"
+  homepage: "https://wiki.joexbayer.dev/wiki/agentic-engineering"
+
+requires:
+  speckit_version: ">=0.14.0"
+
+provides:
+  templates:
+    - type: "command"
+      name: "speckit.plan"
+      file: "commands/speckit.plan.md"
+      description: "Plan with a Phase 2 pre-task review — code sketches and architecture diagrams before tasks are written"
+      replaces: "speckit.plan"
+
+    - type: "command"
+      name: "speckit.tasks"
+      file: "commands/speckit.tasks.md"
+      description: "Tasks tagged with capability (@routine/@implementation/@reasoning) and context ranges, grouped into parallel waves"
+      replaces: "speckit.tasks"
+
+    - type: "command"
+      name: "speckit.implement"
+      file: "commands/speckit.implement.md"
+      description: "Wave-based execution routing capability tags to configured agents, with orchestrator-side context injection"
+      replaces: "speckit.implement"
+
+tags:
+  - "agent-routing"
+  - "parallel"
+  - "context-injection"
+  - "review"
+  - "workflow"

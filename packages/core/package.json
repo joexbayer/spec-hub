@@ -1,0 +1,28 @@
+{
+  "name": "@spec-hub/core",
+  "license": "MIT",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./git-object-id": "./src/git-object-id.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.7",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0",
+    "mdast-util-to-string": "^4.0.0",
+    "unist-util-visit": "5.2.0"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5",
+    "@types/node": "^24",
+    "@types/mdast": "^4.0.0"
+  }
+}

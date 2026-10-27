@@ -1,0 +1,919 @@
+#!/bin/sh
+# spec-hub: Spec Hub reporter. Needs only git and curl. Silent unless asked (Art. 3.6).
+# report and hook fail open: exit 0 on any hub or git trouble. Interactive commands exit 1
+# when the developer must fix something; every command exits 2 on usage errors.
+set -u
+LC_ALL=C                 # byte-wise lengths and ranges
+GIT_LITERAL_PATHSPECS=1  # pathspecs built from dir names are paths, never patterns
+export LC_ALL GIT_LITERAL_PATHSPECS
+CONFIG=.specify/extensions/spec-hub/spec-hub-config.yml
+CREDENTIALS="${XDG_CONFIG_HOME:-$HOME/.config}/spec-hub/credentials"
+SELF=.specify/extensions/spec-hub/scripts/spec-hub   # team-managed hooks run it from the work tree root
+HOOK_EVENTS='post-commit post-checkout post-merge post-rewrite'
+case "$0" in /*) SRC=$0 ;; *) SRC=$PWD/$0 ;; esac   # this script; connect installs a copy of it
+tab='	'   # a literal tab (no subshell on the hook path)
+
+# ---------------------------------------------------------------- shared helpers
+
+usage() {
+  cat >&2 <<'EOF'
+usage: spec-hub <command> [options]
+
+commands:
+  connect                store your token, give this clone an id, install the hooks,
+                         and send a first report
+  disconnect             remove this clone's hooks, id and state (keeps your token)
+  status                 show hub, connection, hooks, private prefixes, last report/error
+  private                list private branch prefixes (never reported)
+  private add <prefix>   stop reporting branches starting with <prefix>
+  private remove <prefix>
+                         report them again
+  hooks <dir>            team-managed hooks: add the spec-hub line to the four hooks in
+                         <dir> (relative to the work tree root); commit the result
+  report [--quiet]       send this clone's in-flight features to the hub
+  report --print-manifest
+                         debug: print the manifest to stdout instead of sending it
+                         (only GET /config is sent to the hub; falls back to "main")
+  hook <event>           called by the git hooks only; returns at once
+EOF
+  exit 2
+}
+
+# cfg KEY: first "KEY: value" line of the extension config, quotes stripped; none if it holds a
+# control character.
+# Builtins only (the hook path calls it); use it as $(cfg KEY).
+cfg() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in "$1:"*) ;; *) continue ;; esac
+    v=${line#"$1:"}
+    v=${v#"${v%%[![:space:]]*}"}
+    v=${v%"${v##*[![:space:]]}"}
+    case "$v" in
+      \"*\") v=${v#\"}; v=${v%\"} ;;
+      \'*\') v=${v#\'}; v=${v%\'} ;;
+    esac
+    # a committed config is anyone's to write: a control character (a terminal escape) is no value
+    case "$v" in *[[:cntrl:]]*) return 1 ;; esac
+    printf '%s\n' "$v"
+    return 0
+  done < "$CONFIG"
+} 2>/dev/null
+
+state_dir() { printf '%s/spec-hub' "$(git rev-parse --path-format=absolute --git-common-dir)"; }
+
+# json_str S: S as a JSON string; control characters are dropped.
+json_str() { printf '"%s"' "$(printf '%s' "$1" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+# sh_quote S: S single-quoted for sh.
+sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# valid_project S: S matches ^[a-z0-9][a-z0-9-]{1,62}$ (the hub's slug rule).
+valid_project() {
+  case "$1" in [a-z0-9]*) ;; *) return 1 ;; esac
+  case "$1" in *[!a-z0-9-]*) return 1 ;; esac
+  [ ${#1} -ge 2 ] && [ ${#1} -le 63 ]
+}
+
+# enter_repo: cd to the work tree root; exit 0 silently outside a git work tree.
+enter_repo() {
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+  cd "$top" || exit 0
+}
+
+# load_hub: sets HUB_URL, PROJECT, API, TOKEN (TOKEN may be empty). Exits 0 when not configured.
+load_hub() {
+  [ -f "$CONFIG" ] || exit 0
+  HUB_URL=$(cfg hub_url)
+  PROJECT=$(cfg project)
+  [ -n "$HUB_URL" ] && valid_project "$PROJECT" || exit 0
+  API="$HUB_URL/api/r/$PROJECT"
+  TOKEN=$(awk -v u="$HUB_URL" '$1 == u { print $2; exit }' "$CREDENTIALS" 2>/dev/null)
+}
+
+# make_tmp: sets TMP (removed on exit, also when interrupted) and writes the auth header
+# file, so the token never appears on a command line.
+make_tmp() {
+  TMP=$(mktemp -d) || exit 0
+  LOCK=
+  trap cleanup EXIT
+  trap 'cleanup; exit 130' INT TERM HUP
+  printf 'Authorization: Bearer %s\n' "$TOKEN" > "$TMP/auth"
+}
+
+cleanup() {
+  rm -rf "$TMP"
+  if [ -n "$LOCK" ]; then rm -rf "$LOCK"; fi
+}
+
+# make_state: sets S, the per-clone state directory (never inside the work tree).
+make_state() {
+  S=$(state_dir) || exit 0
+  mkdir -p "$S" 2>/dev/null || exit 0
+}
+
+record_error() { printf '%s\n' "$1" > "$S/error"; RESULT=error; MESSAGE=$1; }
+
+# has_credentials URL: true when the credentials file has a token for URL (builtins only).
+has_credentials() {
+  [ -n "$1" ] && [ -f "$CREDENTIALS" ] || return 1
+  while read -r url token; do
+    [ "$url" = "$1" ] && [ -n "$token" ] && return 0
+  done < "$CREDENTIALS"
+  return 1
+}
+
+# save_credentials: replace this hub's line with "$HUB_URL $TOKEN", or drop it when
+# TOKEN is empty. File mode 600, directory 700; the token is only ever in a builtin.
+save_credentials() (
+  umask 077
+  mkdir -p "${CREDENTIALS%/*}" || exit 1
+  new="$CREDENTIALS.$$"
+  {
+    awk -v u="$HUB_URL" '$1 != u' "$CREDENTIALS" 2>/dev/null
+    if [ -n "$TOKEN" ]; then printf '%s %s\n' "$HUB_URL" "$TOKEN"; fi
+  } > "$new" && mv -f "$new" "$CREDENTIALS"
+)
+
+# team_hook_line EVENT: the line for team-managed hooks; it runs the work tree's script.
+team_hook_line() { printf '[ -f %s ] && sh %s hook %s || true' "$SELF" "$SELF" "$1"; }
+
+# clone_hook_line QUOTED_COPY EVENT: the line for clone-managed hooks; it runs the copy in the
+# git dir, so checking out a branch never runs that branch's version of the script.
+clone_hook_line() { printf '[ -x %s ] && sh %s hook %s || true' "$1" "$1" "$2"; }
+
+# calls_hub FILE EVENT: true when FILE runs the spec-hub hook for EVENT (team-managed).
+calls_hub() { [ -f "$1" ] && grep -qF "spec-hub hook $2" "$1"; }
+
+# hooks_location: sets HOOKS_PATH (core.hooksPath, empty when clone-managed) and HOOKS_DIR.
+hooks_location() {
+  HOOKS_PATH=$(git config --type=path core.hooksPath 2>/dev/null)
+  if [ -n "$HOOKS_PATH" ]; then
+    HOOKS_DIR=$HOOKS_PATH
+  else
+    HOOKS_DIR="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
+  fi
+}
+
+# fetch_default_branch: sets DEFAULT from GET /config. Returns 1 when unknown;
+# records 401/403/404 unless $1 = "norecord".
+fetch_default_branch() {
+  DEFAULT=
+  [ -n "$TOKEN" ] || return 1
+  code=$(curl -s -o "$TMP/config" -w '%{http_code}' --max-time 15 -H @"$TMP/auth" "$API/config") || return 1
+  case "$code" in
+    200) ;;
+    401|403|404) [ "${1:-}" = norecord ] || http_error "$code"; return 1 ;;
+    *) return 1 ;;
+  esac
+  # A JSON string without backslash escapes other than \" (git forbids backslashes in refs).
+  DEFAULT=$(tr -d '\n' < "$TMP/config" |
+    sed -n -E 's/.*"defaultBranch"[[:space:]]*:[[:space:]]*"(([^"\\]|\\")*)".*/\1/p' | sed 's/\\"/"/g')
+  [ -n "$DEFAULT" ] && git check-ref-format "refs/heads/$DEFAULT"
+}
+
+http_error() {
+  ERROR_CODE=$1
+  case "$1" in
+    401) record_error 'the hub rejected your token (revoked or invalid)' ;;
+    403) record_error "you are not a member of project $PROJECT on the hub" ;;
+    404) record_error "project $PROJECT does not exist on the hub" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- manifest
+#
+# Git's -z output is read through `tr '\n\000' '\001\n'`: one record per line, and a newline
+# inside a name becomes \001, a control character, so such names are dropped (the hub rejects
+# control characters) instead of splitting into fake records.
+
+# JS_AWK: js(S), S as a JSON string with control characters dropped.
+JS_AWK='
+function js(s,   n, p, i, out) {
+  gsub(/[\001-\037]/, "", s)
+  n = split(s, p, "\\"); out = p[1]; for (i = 2; i <= n; i++) out = out "\\\\" p[i]
+  n = split(out, p, "\""); out = p[1]; for (i = 2; i <= n; i++) out = out "\\\"" p[i]
+  return "\"" out "\""
+}'
+
+# Feature owners: the author of the oldest commit that added the feature's spec.md, following
+# renames (-M: a deleted file's content reappearing elsewhere) but not copies. `git log --follow`
+# also follows copies of files that still exist, so a new spec.md that resembles another spec
+# (they all start from one template) would get that spec's author.
+#
+# OWNER_AWK: shared parsing of `git log -M -z --name-status --format=%x01%ct%x1f%an%x1f%ae`
+# (read through the tr above). owner_line() handles one line: header lines set T and WHO; for an
+# add of a path in tgt[] it calls owner_found(tgt[path]); a rename moves the tgt[] entry to the
+# old path. Newest first, so the last add found is the oldest.
+# shellcheck disable=SC2016 # awk program
+OWNER_AWK='
+function owner_line(line,   p) {
+  if (line ~ /^\001[0-9]+\037/) {
+    line = substr(line, 2); T = substr(line, 1, index(line, "\037") - 1); WHO = substr(line, index(line, "\037") + 1)
+    st = ""; return ""
+  }
+  p = line; sub(/^\001/, "", p)
+  if (st == "") { st = p; left = (st ~ /^[RC]/) ? 2 : 1; src = ""; return "" }
+  if (left == 2) src = p
+  else if (st ~ /^R/ && (p in tgt)) { tgt[src] = (src in tgt) ? tgt[src] " " tgt[p] : tgt[p]; delete tgt[p] }
+  else if (st == "A" && (p in tgt)) owner_found(tgt[p])
+  if (--left == 0) st = ""
+  return p
+}'
+
+# FEATURES_AWK reads the base trees (ls-tree -d BASE specs/) and then, on stdin, three sections
+# separated by a "\003" line: the paths REF changed since leaving BASE (git diff --name-only),
+# REF's specs/ (ls-tree -r -t -l) and the commits since leaving BASE (OWNER_AWK's log). For each
+# dir that changed and still differs from BASE (FR-012) it prints
+#   F <tab> dir <tab> lastChangeAt <tab> spec <tab> plan <tab> tasks <tab> owner
+# with docs as "oid size" or "-", and owner "\002name\037email" when an add was found since
+# leaving BASE, else "\004<path>" (the spec.md path to look up in BASE's history), or empty
+# without a BASE. When none of those dirs exists in BASE it prints at most 200 lines to stdout.
+# Otherwise it writes all of them to ENVIRON["ONBASE"], with "C" instead of "F" for the dirs
+# that exist in BASE: those may have landed by rebase or cherry-pick (KEEP_AWK decides).
+# shellcheck disable=SC2016 # awk program
+FEATURES_AWK="$OWNER_AWK"'
+function meta(line, m,   i) { i = index(line, "\t"); split(substr(line, 1, i - 1), m, " "); return substr(line, i + 1) }
+function docref(d, f) { return ((d, f) in doc) ? doc[d, f] : "-" }
+# dirpart(p): sets D and F from "specs/D/F..."; false for other paths
+function dirpart(p,   rest, j) {
+  if (substr(p, 1, 6) != "specs/") return 0
+  rest = substr(p, 7); j = index(rest, "/")
+  if (!j) { D = rest; F = ""; return 1 }
+  D = substr(rest, 1, j - 1); F = substr(rest, j + 1); return 1
+}
+function owner_found(d) { added[d] = WHO }
+FILENAME == ARGV[1] { if (index($0, "\t")) { p = meta($0, m); base[substr(p, 7)] = m[3] }; next }
+$0 == "\003" {
+  if (++sec == 2) for (k = 1; k <= n; k++) tgt["specs/" order[k] "/spec.md"] = order[k]
+  next
+}
+sec == 0 {
+  if (dirpart($0) && F != "" && length(D) <= 255 && D !~ /[[:cntrl:]]/ && !(D in seen)) { seen[D] = 1; order[++n] = D }
+  next
+}
+sec == 1 {
+  if (!index($0, "\t")) next
+  if (!dirpart(meta($0, m))) next
+  if (F == "") { if (m[2] == "tree") tree[D] = m[3] }
+  else if (m[2] == "blob" && (F == "spec.md" || F == "plan.md" || F == "tasks.md")) doc[D, F] = m[3] " " m[4]
+  next
+}
+{ if (dirpart(owner_line($0)) && F != "" && !(D in at)) at[D] = T }
+END {
+  for (p in tgt) end[tgt[p]] = p
+  for (k = 1; k <= n; k++) {
+    d = order[k]
+    if (!(d in tree) || ((d in base) && base[d] == tree[d])) continue
+    keep[++c] = d
+    if (d in base) onbase = 1
+  }
+  for (k = 1; k <= c; k++) {
+    d = keep[k]
+    if (d in added) a = "\002" added[d]
+    else if (has_base) a = "\004" end[d]
+    else a = ""
+    l = sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", ((d in base) ? "C" : "F"), d, ((d in at) ? at[d] : tip_at), docref(d, "spec.md"), docref(d, "plan.md"), docref(d, "tasks.md"), a)
+    if (onbase) print l > ENVIRON["ONBASE"]
+    else if (k <= 200) print l
+  }
+}'
+
+# KEEP_AWK reads FEATURES_AWK's ONBASE file and then the paths of the commits on REF that no commit
+# of BASE matches by patch identity (git log --cherry-pick --right-only --name-only, read
+# through the tr above). It prints the F lines, and the C lines whose dir one of those commits
+# touched (as F lines), at most 200: a dir whose every change reached BASE by rebase or
+# cherry-pick has landed, even when BASE edited it since.
+# shellcheck disable=SC2016 # awk program
+KEEP_AWK='
+FILENAME == ARGV[1] { line[++n] = $0; next }
+{
+  p = $0; sub(/^\001/, "", p)
+  if (substr(p, 1, 6) != "specs/") next
+  p = substr(p, 7); j = index(p, "/")
+  if (j) touched[substr(p, 1, j - 1)] = 1
+}
+END {
+  for (k = 1; k <= n; k++) {
+    l = line[k]
+    if (substr(l, 1, 2) == "C\t") {
+      d = substr(l, 3); d = substr(d, 1, index(d, "\t") - 1)
+      if (!(d in touched)) continue
+      l = "F" substr(l, 2)
+    }
+    if (++c > 200) break
+    print l
+  }
+}'
+
+# branch_features REF TIP_AT: the F lines of REF (FEATURES_AWK, then KEEP_AWK). One git call for
+# a branch that changed nothing under specs/, three for one that did, four when one of those
+# dirs also exists on the default branch.
+branch_features() {
+  r=$1
+  if [ -z "$base" ] || ! git diff -z --name-only "$base...$r" -- specs/ > "$TMP/changed" 2>/dev/null; then
+    git ls-tree -r -z --name-only "$r" -- specs/ > "$TMP/changed"   # no base, or no merge base
+  fi
+  [ -s "$TMP/changed" ] || return 0
+  {
+    cat "$TMP/changed"
+    printf '\003\000'
+    git ls-tree -r -t -z -l "$r" -- specs/
+    printf '\003\000'
+    git log --no-show-signature -M -z --format=%x01%ct%x1f%an%x1f%ae --name-status "${base:+$base..}$r" -- specs/
+  } | tr '\n\000' '\001\n' |
+    ONBASE=$TMP/onbase awk -v tip_at="$2" -v has_base="${base:+1}" "$FEATURES_AWK" "$TMP/basetrees" -
+  [ -s "$TMP/onbase" ] || return 0
+  git log --no-show-signature --cherry-pick --right-only --no-merges -z --name-only --format=%x01 \
+    "$base...$r" -- specs/ | tr '\n\000' '\001\n' | awk "$KEEP_AWK" "$TMP/onbase" -
+  : > "$TMP/onbase"
+}
+
+# BRANCHES_AWK, over the B and F lines and then BASE's log (OWNER_AWK; empty unless an owner
+# was left to look up there): the "branches" array body.
+# shellcheck disable=SC2016 # awk program
+BRANCHES_AWK="$JS_AWK$OWNER_AWK"'
+function owner_found(ids,   n, x, k) { n = split(ids, x, " "); for (k = 1; k <= n; k++) fa[x[k]] = WHO }
+function docjs(v,   x) { if (v == "-") return "null"; split(v, x, " "); return "{\"oid\":\"" x[1] "\",\"size\":" x[2] "}" }
+function authorjs(a,   i, n, e) {
+  i = index(a, "\037")
+  if (!i) return "null"
+  n = substr(a, 1, i - 1); e = substr(a, i + 1)
+  gsub(/[\001-\037]/, "", n); gsub(/[\001-\037]/, "", e)
+  if (n == "" || length(n) > 255 || length(e) > 320) return "null"
+  return "{\"name\":" js(n) ",\"email\":" js(e) "}"
+}
+FILENAME == ARGV[1] && /^B\t/ { nb++; split($0, x, "\t"); bn[nb] = x[2]; bt[nb] = x[3]; bat[nb] = x[4]; bp[nb] = x[5]; bf[nb] = ng + 1; bl[nb] = ng; next }
+FILENAME == ARGV[1] && /^F\t/ {
+  line = substr($0, 3)
+  for (k = 1; k <= 5; k++) { i = index(line, "\t"); x[k] = substr(line, 1, i - 1); line = substr(line, i + 1) }
+  ng++; fd[ng] = x[1]; fat[ng] = x[2]; d1[ng] = x[3]; d2[ng] = x[4]; d3[ng] = x[5]; bl[nb] = ng
+  if (substr(line, 1, 1) == "\002") fa[ng] = substr(line, 2)
+  else if (substr(line, 1, 1) == "\004") { p = substr(line, 2); tgt[p] = (p in tgt) ? tgt[p] " " ng : ng }
+  next
+}
+FILENAME == ARGV[2] { owner_line($0) }
+# The hub refuses times in the future (a skewed clock or imported history would otherwise block
+# every report), so commit times are clamped to now.
+function clamp(t) { return (t + 0 > now + 0) ? now : t }
+END {
+  for (b = 1; b <= nb; b++) {
+    feats = ""; sep = ""
+    for (g = bf[b]; g <= bl[b]; g++) {
+      feats = feats sep "{\"dir\":" js(fd[g]) ",\"lastChangeAt\":" clamp(fat[g]) ",\"author\":" authorjs(fa[g]) \
+        ",\"docs\":{\"spec\":" docjs(d1[g]) ",\"plan\":" docjs(d2[g]) ",\"tasks\":" docjs(d3[g]) "}}"
+      sep = ","
+    }
+    printf "%s{\"name\":%s,\"tip\":\"%s\",\"tipAt\":%s,\"pushed\":%s,\"features\":[%s]}", (b > 1 ? "," : ""), js(bn[b]), bt[b], clamp(bat[b]), bp[b], feats
+  }
+}'
+
+# branch_list: $TMP/branchlist, "ref name tip tipAt pushed" (tab-separated) for the local
+# branches not contained in $base, newest first, private prefixes dropped, at most 500.
+# Prefixes match the name without refs/heads/, and git always gets the full ref, so a tag
+# with the same name changes neither.
+branch_list() {
+  # shellcheck disable=SC2086 # ${base:+...} expands to one word or none
+  git for-each-ref ${base:+--no-merged="$base"} --sort=-committerdate refs/heads/ \
+    --format='%(refname)%09%(objectname)%09%(committerdate:unix)' > "$TMP/heads"
+  # pushed: the tip is contained in some refs/remotes/<remote>/* (multiple --merged are ORed).
+  : > "$TMP/pushed"
+  if [ -s "$TMP/remote" ]; then
+    set --
+    while IFS="$tab" read -r ref _ _; do set -- "$@" "--merged=$ref"; done < "$TMP/remote"
+    # shellcheck disable=SC2086
+    git for-each-ref --format='%(refname)' ${base:+--no-merged="$base"} "$@" refs/heads/ > "$TMP/pushed"
+  fi
+  awk -F "$tab" '
+    FILENAME == ARGV[1] { if ($0 != "") priv[++np] = $0; next }
+    FILENAME == ARGV[2] { pushed[$0] = 1; next }
+    {
+      name = substr($1, 12)
+      if (length(name) > 255) next
+      for (i = 1; i <= np; i++) if (substr(name, 1, length(priv[i])) == priv[i]) next
+      if (++n > 500) exit
+      print $1 "\t" name "\t" $2 "\t" $3 "\t" (($1 in pushed) ? "true" : "false")
+    }' "$TMP/private" "$TMP/pushed" "$TMP/heads" > "$TMP/branchlist"
+}
+
+# generated_at: Unix ms; the last three digits are a per-clone counter so two
+# reports in the same second still order.
+generated_at() {
+  n=$(cat "$S/seq" 2>/dev/null)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  n=$(( (n + 1) % 1000 ))
+  printf '%s\n' "$n" > "$S/seq"
+  printf '%s%03d' "$(date +%s)" "$n"
+}
+
+# build_manifest FILE: write the manifest and $TMP/data (B and F lines, for the counts).
+# Returns 1 when the clone has no cloneId, 2 (MESSAGE set) when the remote has no default branch.
+build_manifest() {
+  out=$1
+  clone_id=$(git config --local spec-hub.cloneId) || return 1
+  [ -n "$clone_id" ] || return 1
+  remote=$(cfg remote)
+  remote=${remote:-origin}
+  git for-each-ref --format='%(refname)%09%(objectname)%09%(committerdate:unix)' \
+    "refs/remotes/$remote/" > "$TMP/remote" 2>/dev/null
+  base=
+  while IFS="$tab" read -r ref base_tip base_at; do
+    [ "$ref" = "refs/remotes/$remote/$DEFAULT" ] && { base=$ref; break; }
+  done < "$TMP/remote"
+  if [ -z "$base" ] && [ -n "$(git remote)" ]; then
+    MESSAGE="$remote/$DEFAULT not found; check the project's default branch on the hub (it is $DEFAULT)"
+    return 2
+  fi
+  git config --local --get-all spec-hub.private > "$TMP/private" 2>/dev/null
+  format=$(git rev-parse --show-object-format 2>/dev/null)
+  case "$format" in sha1|sha256) ;; *) format=sha1 ;; esac
+  email=$(git config user.email)
+  [ ${#email} -le 320 ] || email=
+  : > "$TMP/basetrees"
+  [ -z "$base" ] || git ls-tree -d -z "$base" specs/ | tr '\n\000' '\001\n' > "$TMP/basetrees"
+  branch_list
+  : > "$TMP/onbase"
+  while IFS="$tab" read -r ref name tip tip_at pushed; do
+    printf 'B\t%s\t%s\t%s\t%s\n' "$name" "$tip" "$tip_at" "$pushed"
+    branch_features "$ref" "$tip_at"
+  done < "$TMP/branchlist" > "$TMP/data"
+  : > "$TMP/owners"
+  # an owner left to look up in the default branch's history (FEATURES_AWK's "\004")
+  if grep -q "$tab$(printf '\004')" "$TMP/data"; then
+    git log --no-show-signature -M -z --diff-filter=AR --format=%x01%ct%x1f%an%x1f%ae --name-status \
+      "$base" -- specs/ | tr '\n\000' '\001\n' > "$TMP/owners"
+  fi
+  if [ -n "$base" ]; then
+    default=$(awk "$JS_AWK"'
+      index($0, "\t") {
+        d = substr($0, index($0, "\t") + 7)
+        if (length(d) <= 255 && d !~ /[[:cntrl:]]/ && ++n <= 5000) { printf "%s%s", sep, js(d); sep = "," }
+      }' "$TMP/basetrees")
+    now=$(date +%s); [ "$base_at" -gt "$now" ] 2>/dev/null && base_at=$now
+    default=$(printf '{"branch":%s,"tip":"%s","tipAt":%s,"dirs":[%s]}' \
+      "$(json_str "$DEFAULT")" "$base_tip" "$base_at" "$default")
+  else
+    default=null
+  fi
+  {
+    printf '{"cloneId":%s,"generatedAt":%s,"commitEmail":%s,"objectFormat":"%s","default":%s,"branches":[' \
+      "$(json_str "$clone_id")" "$(generated_at)" "$(json_str "$email")" "$format" "$default"
+    awk -v now="$(date +%s)" "$BRANCHES_AWK" "$TMP/data" "$TMP/owners"
+    printf ']}\n'
+  } > "$out"
+}
+
+# count B|F: branches or features in the last manifest.
+count() { grep -c "^$1$tab" "$TMP/data" 2>/dev/null || :; }
+
+# count_dirs: distinct feature dirs in the last manifest (a feature on two branches is one).
+count_dirs() { awk -F "$tab" '$1 == "F" && !($2 in s) { s[$2] = 1; n++ } END { print n + 0 }' "$TMP/data" 2>/dev/null; }
+
+# post_report FILE [retry]: POST the manifest; on 409 upload the missing blobs it names
+# (only those in FILE) and retry once. Sets RESULT to ok | error | refused | unreachable.
+post_report() {
+  RESULT=unreachable
+  code=$(curl -s -o "$TMP/resp" -w '%{http_code}' --max-time 15 -H @"$TMP/auth" \
+    -H 'Content-Type: application/json' --data-binary @"$1" "$API/reports") || return 0
+  case "$code" in
+    200) date +%s > "$S/last-ok"; rm -f "$S/error"; RESULT=ok ;;
+    409)
+      tr -c '0-9a-f' '\n' < "$TMP/resp" | grep -E '^([0-9a-f]{40}|[0-9a-f]{64})$' |
+        while read -r oid; do
+          grep -qF "\"$oid\"" "$1" || continue
+          git cat-file blob "$oid" 2>/dev/null | curl -s -o /dev/null --max-time 15 -X PUT -H @"$TMP/auth" \
+            -H 'Content-Type: application/octet-stream' --data-binary @- "$API/blobs/$oid"
+        done
+      [ "${2:-}" = retry ] || post_report "$1" retry ;;
+    403)
+      if grep -qF 'another person or project' "$TMP/resp"; then
+        record_error "this clone id is registered to another person or project; run: sh $SELF disconnect && sh $SELF connect"
+      else
+        http_error "$code"
+      fi ;;
+    401|404) http_error "$code" ;;
+    *)
+      # recorded so the once-a-day notice says so; an outdated hooks copy is the usual cause
+      record_error "the hub refused the last report (HTTP $code); if the extension was upgraded, run: sh $SELF connect"
+      RESULT=refused; MESSAGE="The hub refused the report (HTTP $code)." ;;
+  esac
+}
+
+# send_report: fetch the default branch, then build and POST the manifest.
+# Needs TOKEN, TMP and S; sets RESULT (ok | error | refused | unreachable) and MESSAGE.
+send_report() {
+  RESULT=unreachable
+  MESSAGE=
+  fetch_default_branch || return 0
+  build_manifest "$TMP/manifest"
+  case $? in
+    0) post_report "$TMP/manifest" ;;
+    2) record_error "$MESSAGE" ;;
+  esac
+}
+
+# take_lock: true when this process now holds $S/lock. A lock older than 10 minutes is
+# left by a report that crashed and is taken over.
+take_lock() {
+  if ! mkdir "$S/lock" 2>/dev/null; then
+    at=$(cat "$S/lock/at" 2>/dev/null)
+    case "$at" in ''|*[!0-9]*) return 1 ;; esac
+    [ $(( $(date +%s) - at )) -gt 600 ] || return 1
+    rm -rf "$S/lock"
+    mkdir "$S/lock" 2>/dev/null || return 1
+  fi
+  LOCK=$S/lock
+  date +%s > "$LOCK/at"
+}
+
+# report_locked: the hooks' background report. One runs at a time; a report asked for while
+# one runs leaves $S/pending, and the running one reports once more when it is done.
+report_locked() {
+  while take_lock; do
+    rm -f "$S/pending"
+    send_report
+    rm -rf "$LOCK"
+    LOCK=
+    [ -f "$S/pending" ] || return 0
+  done
+  : > "$S/pending"
+}
+
+# ---------------------------------------------------------------- commands
+
+cmd_report() {
+  quiet=false
+  print=false
+  background=false
+  for arg in "$@"; do
+    case "$arg" in
+      --quiet) quiet=true ;;
+      --print-manifest) print=true ;;
+      --background) background=true ;;   # cmd_hook only
+      *) usage ;;
+    esac
+  done
+  enter_repo
+  load_hub
+  [ "$print" = true ] || [ -n "$TOKEN" ] || exit 0
+  make_tmp
+  make_state
+  if [ "$print" = true ]; then
+    fetch_default_branch norecord || DEFAULT=main
+    build_manifest "$TMP/manifest"
+    case $? in
+      0) cat "$TMP/manifest" ;;
+      2) printf 'spec-hub: %s.\n' "$MESSAGE" >&2; exit 1 ;;
+    esac
+    exit 0
+  fi
+  if [ "$background" = true ]; then
+    report_locked
+    exit 0
+  fi
+  send_report
+  # No cloneId means not connected: stay silent even when asked.
+  if [ "$RESULT" = unreachable ]; then
+    git config --local spec-hub.cloneId >/dev/null || exit 0
+  fi
+  [ "$quiet" = true ] && exit 0
+  case "$RESULT" in
+    ok) printf 'Reported %s features on %s branches.\n' "$(count_dirs)" "$(count B)" ;;
+    error) printf '%s\n' "$MESSAGE" ;;
+    refused) printf '%s\n' "$MESSAGE" ;;
+    *) printf 'Hub unreachable; will retry on the next commit.\n' ;;
+  esac
+  exit 0
+}
+
+# hook EVENT: the only thing git hooks run. Foreground is builtins plus one git call
+# (SC-004, < 100 ms); the report itself runs detached, from this same file ($0), never from
+# the work tree. Never reads stdin.
+cmd_hook() {
+  # One git call yields the cloneId and, via its origin "file:<common-dir>/config", $S.
+  line=$(git config --local --show-origin spec-hub.cloneId 2>/dev/null) || exit 0
+  clone_id=${line##*[[:space:]]}
+  [ -n "$clone_id" ] && [ -f "$CONFIG" ] || exit 0
+  has_credentials "$(cfg hub_url)" || exit 0
+  origin=${line%[[:space:]]"$clone_id"}
+  case "$origin" in
+    file:\"*|*/config.worktree) origin= ;;       # quoted path or per-worktree file
+    file:/*/config) origin=${origin#file:} ;;
+    file:*/config) origin=$PWD/${origin#file:} ;; # relative to the work tree root (cwd)
+    *) origin= ;;
+  esac
+  if [ -n "$origin" ]; then
+    S=${origin%/config}/spec-hub
+  else
+    S=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/spec-hub || exit 0
+  fi
+  if [ -f "$S/error" ]; then
+    today=$(date +%F)
+    shown=
+    { read -r shown < "$S/error-shown"; } 2>/dev/null
+    if [ "$shown" != "$today" ]; then
+      message=
+      { read -r message < "$S/error"; } 2>/dev/null
+      printf 'spec-hub: %s. Run: sh %s status\n' "$message" "$0" >&2
+      printf '%s\n' "$today" > "$S/error-shown"
+    fi
+  fi
+  sh "$0" report --background </dev/null >/dev/null 2>&1 &
+  exit 0
+}
+
+# read_token: sets TOKEN from the terminal with echo off, or one line of stdin.
+# The prompt names where the token will be sent.
+read_token() {
+  TOKEN=
+  if [ -t 0 ]; then
+    printf 'Paste your Spec Hub token for %s://%s: ' "$SCHEME" "$AUTHORITY" >&2
+    trap 'stty echo; exit 130' INT TERM
+    stty -echo
+    read -r TOKEN || :
+    stty echo
+    trap - INT TERM
+    printf '\n' >&2
+  else
+    read -r TOKEN || :
+  fi
+}
+
+new_clone_id() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr '[:upper:]' '[:lower:]'
+  else
+    od -An -N16 -tx1 /dev/urandom | tr -d ' \n' |
+      sed 's/^\(.\{8\}\)\(.\{4\}\).\(.\{3\}\).\(.\{3\}\)\(.\{12\}\)$/\1-\2-4\3-8\4-\5/'
+  fi
+}
+
+# install_hooks: clone-managed hooks are (re)written, calling a copy of this script kept in the
+# git dir (refreshed on every connect); a file we did not write is never touched.
+# Team-managed hooks are only checked.
+install_hooks() {
+  hooks_location
+  if [ -n "$HOOKS_PATH" ]; then
+    missing=
+    for e in $HOOK_EVENTS; do
+      calls_hub "$HOOKS_DIR/$e" "$e" || missing="$missing $e"
+    done
+    [ -z "$missing" ] && return 0
+    printf 'Hooks are team-managed (%s); missing the spec-hub line:%s\n' "$HOOKS_PATH" "$missing"
+    printf 'Ask your team to run: sh %s hooks %s\n' "$SELF" "$HOOKS_PATH"
+    return 0
+  fi
+  copy="$(state_dir)/spec-hub"
+  if [ ! -f "$SRC" ] || ! mkdir -p "${copy%/*}" ||
+    ! { cp "$SRC" "$copy.$$" && chmod 700 "$copy.$$" && mv -f "$copy.$$" "$copy"; }; then
+    rm -f "$copy.$$"
+    printf 'spec-hub: could not install %s.\n' "$copy" >&2
+    exit 1
+  fi
+  quoted=$(sh_quote "$copy")
+  mkdir -p "$HOOKS_DIR" || exit 1
+  for e in $HOOK_EVENTS; do
+    f="$HOOKS_DIR/$e"
+    line=$(clone_hook_line "$quoted" "$e")
+    if [ ! -e "$f" ] || [ "$(sed -n 2p "$f")" = '# spec-hub' ]; then
+      printf '#!/bin/sh\n# spec-hub\n%s\n' "$line" > "$f" || exit 1
+      chmod +x "$f" || exit 1
+    elif ! grep -qxF -- "$line" "$f"; then
+      printf 'Add this line to %s: %s\n' "$f" "$line"
+    fi
+  done
+}
+
+cmd_connect() {
+  [ $# -eq 0 ] || usage
+  if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+    printf 'spec-hub: not inside a git work tree.\n' >&2
+    exit 1
+  fi
+  enter_repo
+  HUB_URL=$(cfg hub_url)
+  PROJECT=$(cfg project)
+  if [ -z "$HUB_URL" ] || [ -z "$PROJECT" ]; then
+    printf 'spec-hub: no hub configured. Set both keys in %s:\n' "$CONFIG" >&2
+    printf '  hub_url: https://spec-hub.example.com\n  project: <project-slug>\n' >&2
+    exit 1
+  fi
+  if ! valid_project "$PROJECT"; then
+    printf 'spec-hub: project in %s must be a project slug (a-z, 0-9 and -, 2 to 63 characters).\n' "$CONFIG" >&2
+    exit 1
+  fi
+  case "$HUB_URL" in
+    *[[:space:]]*) SCHEME= ;;
+    https://*) SCHEME=https ;;
+    http://*) SCHEME=http ;;
+    *) SCHEME= ;;
+  esac
+  if [ -z "$SCHEME" ]; then
+    printf 'spec-hub: hub_url in %s must be an https:// URL without spaces.\n' "$CONFIG" >&2
+    exit 1
+  fi
+  AUTHORITY=${HUB_URL#*://}
+  AUTHORITY=${AUTHORITY%%[/?#]*}
+  case "$AUTHORITY" in
+    ''|*@*)
+      printf 'spec-hub: hub_url in %s must name a host without user info (no "@").\n' "$CONFIG" >&2
+      exit 1 ;;
+    '['*) host=${AUTHORITY%%]*}] ;;
+    *) host=${AUTHORITY%%:*} ;;
+  esac
+  if [ "$SCHEME" = http ]; then
+    case "$host" in
+      localhost|127.0.0.1|'[::1]') ;;
+      *)
+        printf 'spec-hub: hub_url in %s must use https:// (http:// only for localhost, 127.0.0.1 and [::1]).\n' "$CONFIG" >&2
+        exit 1 ;;
+    esac
+  fi
+  load_hub
+  if [ -z "$TOKEN" ]; then
+    read_token
+    case "$TOKEN" in
+      '') printf 'spec-hub: no token given.\n' >&2; exit 1 ;;
+      *[[:space:]]*) TOKEN=; printf 'spec-hub: a token has no spaces.\n' >&2; exit 1 ;;
+    esac
+    if ! save_credentials; then
+      printf 'spec-hub: could not write %s.\n' "$CREDENTIALS" >&2
+      exit 1
+    fi
+  fi
+  if ! git config --local spec-hub.cloneId >/dev/null; then
+    id=$(new_clone_id)
+    [ -n "$id" ] && git config --local spec-hub.cloneId "$id" || exit 1
+  fi
+  install_hooks
+  make_tmp
+  make_state
+  ERROR_CODE=
+  send_report
+  case "$RESULT" in
+    ok)
+      login=$(tr -d '\n' < "$TMP/config" |
+        sed -n 's/.*"login"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9._-]*\)".*/\1/p')
+      printf 'Connected to %s%s: %s features in flight.\n' "$PROJECT" "${login:+ as @$login}" "$(count_dirs)" ;;
+    error)
+      printf 'spec-hub: %s.\n' "$MESSAGE" >&2
+      if [ "$ERROR_CODE" = 401 ]; then
+        # A rejected token would otherwise be reused by every later connect.
+        TOKEN=
+        save_credentials && printf 'Removed the stored token; run connect again with a new one.\n' >&2
+      fi
+      exit 1 ;;
+    refused)
+      printf '%s Connected locally; the next commit retries.\n' "$MESSAGE" ;;
+    *)
+      printf "Hub unreachable at %s; reporting will start once it's reachable.\n" "$HUB_URL" ;;
+  esac
+  exit 0
+}
+
+cmd_disconnect() {
+  [ $# -eq 0 ] || usage
+  enter_repo
+  common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
+  for e in $HOOK_EVENTS; do
+    f="$common/hooks/$e"
+    # Only files connect wrote: the marker is their second line.
+    if [ -f "$f" ] && [ "$(sed -n 2p "$f")" = '# spec-hub' ]; then rm -f "$f"; fi
+  done
+  git config --local --remove-section spec-hub 2>/dev/null
+  rm -rf "$common/spec-hub"   # state and the hooks' copy of this script
+  printf 'Disconnected. The repository is as it was.\n'
+}
+
+# epoch_date N: N as a local date (GNU, then BSD date), else N itself.
+epoch_date() { date -d "@$1" 2>/dev/null || date -r "$1" 2>/dev/null || printf '%s\n' "$1"; }
+
+cmd_status() {
+  [ $# -eq 0 ] || usage
+  enter_repo
+  HUB_URL=$(cfg hub_url)
+  PROJECT=$(cfg project)
+  if [ -n "$HUB_URL" ] && [ -n "$PROJECT" ]; then
+    printf 'Hub:         %s (project %s)\n' "$HUB_URL" "$PROJECT"
+  else
+    printf 'Hub:         not linked (set hub_url and project in %s)\n' "$CONFIG"
+  fi
+  connected=no
+  if git config --local spec-hub.cloneId >/dev/null && has_credentials "$HUB_URL"; then connected=yes; fi
+  printf 'Connected:   %s\n' "$connected"
+  S=$(state_dir)
+  hooks_location
+  if [ -n "$HOOKS_PATH" ]; then
+    printf 'Hooks:       team-managed (%s)\n' "$HOOKS_PATH"
+  else
+    printf 'Hooks:       clone-managed (%s)\n' "$HOOKS_DIR"
+    quoted=$(sh_quote "$S/spec-hub")
+  fi
+  active=
+  missing=
+  for e in $HOOK_EVENTS; do
+    f="$HOOKS_DIR/$e"
+    if [ -n "$HOOKS_PATH" ]; then
+      [ -x "$f" ] && calls_hub "$f" "$e"
+    else
+      # the exact line for this clone's copy: a moved repository or a removed copy shows as missing
+      [ -x "$f" ] && [ -x "$S/spec-hub" ] && grep -qxF -- "$(clone_hook_line "$quoted" "$e")" "$f"
+    fi && active="$active $e" || missing="$missing $e"
+  done
+  printf '  active:   %s\n  missing:  %s\n' "${active:- none}" "${missing:- none}"
+  if [ -z "$HOOKS_PATH" ] && [ -f "$S/spec-hub" ] && [ -f "$SELF" ] && ! cmp -s "$SELF" "$S/spec-hub"; then
+    printf '  outdated: the hooks run an older copy of the reporter; run: sh %s connect\n' "$SELF"
+  fi
+  prefixes=$(git config --local --get-all spec-hub.private | tr '\n' ' ')
+  printf 'Private:     %s\n' "${prefixes:-none}"
+  last=$(cat "$S/last-ok" 2>/dev/null)
+  case "$last" in
+    '') last=never ;;
+    *[!0-9]*) ;;
+    *) last=$(epoch_date "$last") ;;
+  esac
+  printf 'Last report: %s\n' "$last"
+  error=$(cat "$S/error" 2>/dev/null)
+  printf 'Last error:  %s\n' "${error:-none}"
+  exit 0
+}
+
+# ere_escape S: S as an extended regex matching S literally.
+ere_escape() { printf '%s' "$1" | sed 's/[].[{}()*+?^$|\\]/\\&/g'; }
+
+cmd_private() {
+  enter_repo
+  case "${1:-}" in
+    '')
+      [ $# -eq 0 ] || usage
+      list=$(git config --local --get-all spec-hub.private)
+      if [ -n "$list" ]; then printf '%s\n' "$list"; else printf 'No private prefixes.\n'; fi ;;
+    add|remove)
+      [ $# -eq 2 ] && [ -n "$2" ] || usage
+      case "$2" in -*) usage ;; esac   # no branch name starts with "-"
+      present=no
+      if git config --local --get-all spec-hub.private | grep -qxF -- "$2"; then present=yes; fi
+      if [ "$1" = add ]; then
+        [ "$present" = yes ] || git config --local --add spec-hub.private "$2" || exit 1
+        printf 'Branches starting with %s are private.\n' "$2"
+      elif [ "$present" = no ]; then
+        printf 'spec-hub: %s is not a private prefix.\n' "$2" >&2
+        exit 1
+      else
+        git config --local --fixed-value --unset-all spec-hub.private "$2" 2>/dev/null
+        rc=$?
+        if [ "$rc" = 129 ]; then   # git < 2.30: no --fixed-value
+          git config --local --unset-all spec-hub.private "^$(ere_escape "$2")\$"
+          rc=$?
+        fi
+        [ "$rc" = 0 ] || exit 1
+        printf 'Branches starting with %s are reported again.\n' "$2"
+      fi ;;
+    *) usage ;;
+  esac
+  exit 0
+}
+
+# hooks DIR: add the hook line to the four team-managed hooks in DIR (idempotent).
+cmd_hooks() {
+  [ $# -eq 1 ] && [ -n "$1" ] || usage
+  enter_repo
+  dir=$1
+  mkdir -p "$dir" || exit 1
+  changed=
+  for e in $HOOK_EVENTS; do
+    f="$dir/$e"
+    if [ ! -e "$f" ]; then
+      printf '#!/bin/sh\n%s\n' "$(team_hook_line "$e")" > "$f" || exit 1
+      chmod +x "$f" || exit 1
+      printf 'Created %s\n' "$f"
+      changed=yes
+    elif ! calls_hub "$f" "$e"; then
+      printf '\n# spec-hub\n%s\n' "$(team_hook_line "$e")" >> "$f" || exit 1
+      printf 'Updated %s\n' "$f"
+      changed=yes
+    fi
+  done
+  if [ -n "$changed" ]; then
+    printf 'Commit them so the whole team reports: git add %s && git commit\n' "$dir"
+  else
+    printf 'All four hooks in %s already run spec-hub.\n' "$dir"
+  fi
+  printf 'Note: these hooks run %s from the checked-out branch, as all committed hooks do; review changes to it like hook changes.\n' "$SELF"
+  exit 0
+}
+
+# ---------------------------------------------------------------- dispatcher
+
+[ $# -ge 1 ] || usage
+command=$1
+shift
+case "$command" in
+  hook) cmd_hook "$@" ;;
+  report) cmd_report "$@" ;;
+  connect) cmd_connect "$@" ;;
+  disconnect) cmd_disconnect "$@" ;;
+  status) cmd_status "$@" ;;
+  private) cmd_private "$@" ;;
+  hooks) cmd_hooks "$@" ;;
+  *) usage ;;
+esac

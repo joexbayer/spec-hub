@@ -1,0 +1,14 @@
+node_modules/
+**/node_modules/
+.git/
+Dockerfile*
+.dockerignore
+*.log*
+.env
+.env.*
+coverage/
+apps/server/public/
+specs/
+.claude/
+.specify/
+.playwright-mcp/

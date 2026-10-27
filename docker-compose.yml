@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:18@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6 # tag kept for readability; the digest is what is pulled. Refresh deliberately.
+    environment:
+      POSTGRES_DB: spechub
+      POSTGRES_USER: spechub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    # No host port is published on purpose: the Homebrew postgresql@18 service
+    # owns 5432 on dev machines. The hub reaches the db over the compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spechub -d spechub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hub:
+    build: .
+    # Loopback only: a TLS proxy on this host fronts the hub (and sets TRUSTED_IP_HEADER, see README).
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://spechub:${POSTGRES_PASSWORD}@db:5432/spechub
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

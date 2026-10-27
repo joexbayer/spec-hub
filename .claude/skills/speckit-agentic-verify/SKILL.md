@@ -1,0 +1,1 @@
+../../../.specify/extensions/agentic/.specify-dev/agent-commands/claude/speckit-agentic-verify/SKILL.md

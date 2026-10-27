@@ -1,0 +1,10 @@
+#!/bin/sh
+# Runs Kamal with this installation's settings: loads .env.deploy (see .env.deploy.example), then
+# hands every argument to kamal. `bin/kamal setup` the first time, `bin/kamal deploy` after.
+set -eu
+cd "$(dirname "$0")/.."
+[ -f .env.deploy ] || { echo "no .env.deploy: copy .env.deploy.example and fill it in" >&2; exit 1; }
+set -a
+. ./.env.deploy
+set +a
+exec kamal "$@"

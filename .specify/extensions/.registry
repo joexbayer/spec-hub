@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "agentic": {
+      "version": "3.0.0",
+      "source": "local",
+      "manifest_hash": "sha256:c0d73651420d093bde2f0b804be1b955c96acd0d528abe125a765b95e44aba9c",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "claude": [
+          "speckit.agentic.verify",
+          "speckit.agentic.retrospective",
+          "speckit.agentic.skills",
+          "speckit.agentic.quickfix",
+          "speckit.agentic.restraint",
+          "speckit.agentic.audit",
+          "speckit.agentic.debt",
+          "speckit.agentic.security"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-10-26T10:28:20.312927+00:00"
+    }
+  }
+}

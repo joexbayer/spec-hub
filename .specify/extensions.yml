@@ -1,0 +1,32 @@
+installed:
+- agentic
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_plan:
+  - extension: agentic
+    command: speckit.agentic.restraint
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Run the restraint ladder against this plan before writing tasks?
+    description: Catch over-building at the plan, before any code exists
+    condition: null
+  after_tasks:
+  - extension: agentic
+    command: speckit.agentic.security
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Derive security tasks for this feature before implementing?
+    description: Security controls as real tasks, not review comments
+    condition: null
+  after_implement:
+  - extension: agentic
+    command: speckit.agentic.verify
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Run the adversarial verify gate on this implementation?
+    description: Independent review between implementation and merge
+    condition: null
