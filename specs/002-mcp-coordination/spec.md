@@ -35,22 +35,37 @@ rebase-merge workflow, almost all approvals today are self-approvals, no PR revi
   people as well as a count (FR-016). (4) The `preview.md` that Spec Kit's agentic preset writes
   during plan shows on the feature page fully rendered, Mermaid diagrams included (User Story 8,
   FR-035 to FR-038).
+- Q: Is review and approval a process the team must follow? → A: No. 002 is a benefit, not a
+  process, and mainly for agents: they claim numbers, read each other's contracts, see what is
+  waiting and ask owners before changing their features, all without the developer noticing.
+  Approvals are off until a project turns them on (FR-016); with them off nobody is asked to
+  review, nothing is offered after specify or plan, and the gate check only speaks about an open
+  objection or decline. A solo developer never sees any of it (FR-016a), and anyone can go on past
+  a check with one confirmation (FR-016b).
 
 ## User Scenarios & Testing *(mandatory)*
 
-The people in these stories work through their coding agent; the hub's agent connection (set up in
-001) is how they ask and check. The dashboard is where a person approves, objects and answers.
+The people in these stories work through their coding agent. Most of 002 is the agents
+coordinating with each other through the hub (claiming numbers, reading contracts, checking what is
+waiting, asking owners), and the developer sees it only when a person has to decide something. The
+dashboard is where a person approves, objects and answers, when their project uses that.
 
-### User Story 1 - Ask a teammate to review my spec (Priority: P1)
+Nothing in 002 is required. With no configuration, a project gets the agent capabilities and no
+prompts: no review offers, no approval requirement, and a gate check that is silent unless someone
+objected to or declined something.
 
-A developer has just written a spec with their agent. The agent offers once: "Ask someone to review
-this spec?" The developer names a teammate (or says "the owners of what this depends on"). The
+### User Story 1 - Ask a teammate to review my spec (Priority: P2)
+
+A developer has just written a spec with their agent and wants a second pair of eyes. In a project
+that has turned approvals on, the agent offers once: "Ask someone to review this spec?"; in any
+project the developer can simply ask for it in one sentence. The developer names a teammate (or says "the owners of what this depends on"). The
 reviewer finds the request in their inbox — in their own agent session and on the dashboard — opens
 the exact version that was sent, and approves it or objects with a reason. The developer's agent
 sees the outcome the next time it looks.
 
-**Why this priority**: This is the gap the pilot shows: in the pilot 62 of 66 spec approvals were
-self-approvals and no pull request had a review. Asking must cost one sentence to the agent.
+**Why this priority**: Useful where a team wants it (in the pilot 62 of 66 spec approvals were
+self-approvals and no pull request had a review), but a choice, not a process: it is P2 because the
+agent coordination stories come first. Asking must cost one sentence to the agent.
 
 **Independent Test**: Two members of one project. A asks B, through A's agent, to review A's spec.
 B opens the request from their inbox, approves it on the dashboard, and A's agent reports the
@@ -68,9 +83,11 @@ approval with B's name and the version approved.
    the time and the exact version, and A's agent sees it on its next check.
 4. **Given** B is looking at the request, **When** B objects, **Then** B must give a reason, and A
    (and the feature's owner, if different) gets an item needing them at once.
-5. **Given** A's agent is connected, **When** it lists what it can do, **Then** it can ask for a
+5. **Given** a project without approvals turned on, or where nobody but A could review, **When**
+   A's agent finishes a spec or plan, **Then** it offers nothing.
+6. **Given** A's agent is connected, **When** it lists what it can do, **Then** it can ask for a
    review but it cannot approve or object, for anyone, including A.
-6. **Given** A asks for a review of a spec the hub has never seen (not committed yet), **Then** the
+7. **Given** A asks for a review of a spec the hub has never seen (not committed yet), **Then** the
    agent is told to commit it first and no request is made.
 
 ---
@@ -102,17 +119,20 @@ under "you are waiting on", each with who and since when; the dashboard inbox sh
 
 ### User Story 3 - Check before I plan or implement (Priority: P1)
 
-Before the agent starts planning (or implementing) a feature, it checks with the hub whether the
-spec (or the plan) has the approvals the project asks for and whether anyone has objected. When all
+Before the agent starts planning (or implementing) a feature, it checks with the hub whether anyone
+has objected to the spec (or the plan) or declined an agreement it needs, and, in a project that has
+turned approvals on, whether it has the approvals the project asks for. When all
 is well, nothing is printed. When something is missing, the developer sees one short message saying
 what and from whom, and decides for themselves whether to go on. The check never stops git or Spec
 Kit.
 
-**Why this priority**: The check is what turns approvals from a ritual into something the workflow
-looks at, without blocking anyone.
+**Why this priority**: It is how an agent learns, at the moment it matters, that a person objected,
+without anyone having to tell the developer; and in projects that want approvals it turns them from
+a ritual into something the workflow looks at, without blocking anyone.
 
-**Independent Test**: For a spec with no approval, the check before plan says "no approval yet" and
-names the open request; after a teammate approves, the same check prints nothing.
+**Independent Test**: In a project with no configuration, the check on an unreviewed spec prints
+nothing. In a project requiring one approval, the check before plan says "no approval yet" and names
+the open request; after a teammate approves, the same check prints nothing.
 
 **Acceptance Scenarios**:
 
@@ -127,17 +147,26 @@ names the open request; after a teammate approves, the same check prints nothing
    it reports a self-approval, which by default does not count toward the requirement.
 5. **Given** the hub is unreachable, **When** the agent checks, **Then** the check says it could not
    check and Spec Kit carries on.
+6. **Given** a project with no approval setting and no open objection or decline, **When** the agent
+   checks, **Then** the check passes and nothing is shown.
+7. **Given** a project whose only member is the feature's owner, **When** the agent checks, **Then**
+   the check passes and nothing is shown: there is nobody to approve.
+8. **Given** a check that did not pass, **When** the developer tells the agent to go on anyway (for
+   example "yes, do as I say"), **Then** the agent goes on without asking again or arguing, the hub
+   records that the owner went on without the approval for that document version, and the
+   feature's page shows it. The agent does not ask again for the same version.
 
 ---
 
-### User Story 4 - Claim the next spec number (Priority: P2)
+### User Story 4 - Claim the next spec number (Priority: P1)
 
 When a developer starts a new feature in a project with sequential numbering, their agent claims the
 next number from the hub before creating the folder. Two developers who start features at the same
 time get different numbers.
 
 **Why this priority**: Number clashes are the most common collision on the board (001 flags them
-after the fact); claiming prevents them, at the cost of nothing visible to the developer.
+after the fact); the agents claiming numbers prevents them, at the cost of nothing visible to the
+developer. It is the clearest case of agents coordinating on their own.
 
 **Independent Test**: Two members start a feature within the same minute; both claims succeed with
 different numbers, each above every number the hub knows of (landed, in flight or claimed).
@@ -158,7 +187,7 @@ different numbers, each above every number the hub knows of (landed, in flight o
 
 ---
 
-### User Story 5 - Ask the owner before changing their feature (Priority: P2)
+### User Story 5 - Ask the owner before changing their feature (Priority: P1)
 
 A developer's feature depends on, or changes, a feature someone else owns (for example "I'm changing
 the contract in 006"). Their agent asks the owner for agreement with a short note. The owner sees
@@ -183,15 +212,15 @@ C declines with a reason on the dashboard; A's agent shows "C declined: <reason>
 
 ---
 
-### User Story 6 - Decide on the dashboard (Priority: P1)
+### User Story 6 - Decide on the dashboard (Priority: P2)
 
 A reviewer opens the dashboard, sees their inbox, and for each item reads the document version that
 was sent (with what changed since they last approved, if anything), then approves, objects or, for
 agreement requests, agrees or declines. A feature's page shows its approvals and objections, marks
 self-approvals, and shows when a document changed since it was approved.
 
-**Why this priority**: The user named approving a spec as the dashboard's main job. It is also the
-only place an approval can come from (constitution Art. 4.1).
+**Why this priority**: Where a team uses approvals, this is the only place one can come from
+(constitution Art. 4.1). Agreement answers (User Story 5) happen here too.
 
 **Independent Test**: B approves A's spec on the dashboard; the feature page then shows B's
 approval with its version; A edits the spec and reports; the page shows "changed since B approved"
@@ -263,7 +292,7 @@ sequence diagram shows a Preview tab with both diagrams drawn; a feature without
 
 ---
 
-### User Story 9 - Read the contract I depend on (Priority: P2)
+### User Story 9 - Read the contract I depend on (Priority: P1)
 
 A developer's agent is planning a feature that depends on another feature's interface. It asks the
 hub for that feature's contract files (the `contracts/` folder Spec Kit's plan writes), reads them,
@@ -297,6 +326,10 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
 - **A request to someone outside the project, or to nobody**: refused with the reason.
 - **Asking the same person twice for the same document**: the existing open request is returned
   instead of a new one (no second message).
+- **A second member joins a solo project**: from then on the requirement applies as usual, to
+  features already in flight too; their checks name what is missing once, like any other feature.
+- **A required approver is the owner themselves** (for example the owner of a dependency is the same
+  person): that approver is dropped from the requirement rather than making it impossible to meet.
 - **Asking oneself to review**: refused; a self-approval is made on the dashboard and labelled as
   such.
 - **A claimed number appears on someone else's branch first**: 001's collision flag shows it; the
@@ -368,13 +401,24 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
 - **FR-014**: The check MUST be advisory: it never fails a git command or a Spec Kit command.
 - **FR-015**: When the check passes, the developer MUST see nothing; when it doesn't, at most one
   message.
-- **FR-016**: A project MUST be able to set in its committed configuration (Art. 2.3) a quorum per
-  document kind (spec, plan): how many approvals a document needs (default 1); which approvers it
+- **FR-016**: Approvals MUST be off unless a project turns them on. A project MUST be able to set in
+  its committed configuration (Art. 2.3) a quorum per document kind (spec, plan): how many approvals
+  a document needs (default 0, meaning approvals are off for that kind); which approvers it
   must include, if any (the owners of the features it depends on, any project admin, or named
   members; default none); whether a self-approval counts (default no); whether an approval still
   counts after the document changed (default yes, shown as "changed since"). A project with no
-  configuration uses the defaults. Wherever the quorum is not met, the hub MUST name what is
+  configuration uses the defaults, so it requires no approvals and the check speaks only about open
+  objections and declines. Approving and objecting on the dashboard work either way. Wherever the quorum is not met, the hub MUST name what is
   missing.
+- **FR-016a**: The requirement MUST only ask for what the project can give: required approvers who
+  are the feature's owner, or are not members, are dropped, and the number of approvals is capped at
+  the number of members other than the owner. A project with no other member therefore requires
+  nothing, and the check passes (with self-approvals not counted, as FR-016 says).
+- **FR-016b**: When a check does not pass, the developer MUST be able to go on with one
+  confirmation to their agent. Going on MUST be recorded on the hub (person, time, document
+  version) and shown on the feature's page as "went on without approval"; it is not an approval and
+  never counts as one. A later check of the same version MUST NOT ask again; a changed version is
+  checked afresh. With a read-only token the agent still goes on; nothing is recorded.
 
 **Number claims**
 
@@ -408,8 +452,10 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
 - **FR-023**: Capabilities that change state MUST need a token permission for coordinating, which
   new tokens get by default alongside reading. A read-only token can still read the inbox and check
   the gate.
-- **FR-024**: The Spec Kit extension MUST offer, as optional prompts, to ask for a review after a
-  spec or plan is written, and MUST run the gate check before plan and before implement. No Spec Kit
+- **FR-024**: The Spec Kit extension MUST offer, as an optional prompt, to ask for a review after a
+  spec or plan is written only in a project that requires approvals for that document and has
+  somebody else to ask; elsewhere it offers nothing. It MUST run the gate check before plan and
+  before implement, silently when it passes. No Spec Kit
   command gets more than one extra prompt (Art. 3.5), and none fail because of the hub (Art. 3.6).
 - **FR-025**: The extension MUST claim the number before a new feature folder is created in a
   sequentially numbered project, and fall back to Spec Kit's own numbering, silently, when the hub
@@ -434,6 +480,16 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
   load anything from outside the hub, the same rule as for other documents (001).
 - **FR-038**: An agent MUST be able to read the preview's text the way it reads the spec, plan and
   tasks.
+
+**Agents first, never in the way**
+
+- **FR-040**: Every coordination capability MUST be usable by the agent on its own, as part of its
+  normal work, without asking the developer: claiming and releasing numbers, reading contracts and
+  previews, reading the inbox, checking the gate. The developer MUST only be shown something when a
+  person has to decide or has objected; everything else the agent uses quietly.
+- **FR-041**: Nothing in this feature MAY be required to keep using Spec Hub or Spec Kit: a person
+  who ignores every request, a project that never configures anything, and an agent that never calls
+  a coordination capability all keep working exactly as in 001.
 
 **Stock Spec Kit**
 
@@ -477,6 +533,8 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
   note, and the answer (agreed or declined with reason).
 - **Number claim**: a number in a project held by a member, with claimed time and state (held,
   fulfilled, released, lapsed).
+- **Go-on record**: one owner going on past a check that did not pass (an approval missing, or an
+  objection or decline open), for one document version, with time; shown on the feature's page, never counted as an approval.
 - **Approval policy**: a project's quorum per document kind (count, required approvers),
   self-approval rule and change rule, from its committed configuration.
 - **Sequence**: a named run of numbers in the repository (spec numbers, ADRs, follow-up ids), with
@@ -490,8 +548,14 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
 - A person with nothing to act on gets **zero** messages: this feature sends none, and the
   session-start line is silent when nothing needs them (FR-028, FR-029).
 - A review request produces **exactly one** inbox item per reviewer and no reminders (FR-027).
-- Spec Kit commands get at most **one** extra prompt: the review offer after specify or plan; the
-  gate check is silent when it passes and the number claim is always silent (FR-024, FR-025).
+- With **no configuration** (the default), Spec Kit commands get **zero** extra prompts: no review
+  offer, a gate check that is silent unless someone objected or declined, and a number claim that is
+  always silent (FR-016, FR-024, FR-025).
+- With approvals turned on, Spec Kit commands get at most **one** extra prompt: the review offer
+  after specify or plan (FR-024).
+- A **solo** project (one member) gets **zero** review offers and gate messages (FR-016a, FR-024).
+- Going on past a check costs **one** confirmation, and the same version is never asked about again
+  (FR-016b).
 - Joining stays under **2 minutes**: no new setup step — the existing token and extension gain the
   new capabilities.
 
@@ -503,19 +567,25 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
   the reviewer can find it in their inbox within 1 minute.
 - **SC-002**: A reviewer goes from opening the request to a recorded decision in under 2 minutes
   for a typical spec, without leaving the dashboard.
-- **SC-003**: In the pilot's first month, at least half of new specs get an approval from someone
-  other than their owner (today: 4 of 66).
+- **SC-003**: In a project that turns approvals on, at least half of new specs in its first month
+  get an approval from someone other than their owner (the pilot today: 4 of 66).
 - **SC-004**: Zero spec-number clashes between features started after the extension claims numbers.
 - **SC-005**: No agent path can record an approval, objection, agreement or decline: verified by
   trying every agent capability with every token permission.
 - **SC-006**: The gate check adds under 1 second to plan and implement, and prints nothing in at
-  least 9 of 10 runs on an approved feature.
+  least 9 of 10 runs on an approved feature, and in every run without an open objection or decline
+  in a project with no approval setting.
 - **SC-007**: Over a working week, a person not involved in any request has zero items needing
   them and sees no session-start line.
 - **SC-008**: Zero ADR-number clashes in the pilot between ADRs started after the `adr` sequence is
   declared.
 - **SC-009**: Every pilot preview with Mermaid diagrams renders with its diagrams drawn, and none of
   the pilot's 69 previews fails to render as a whole.
+- **SC-010**: In a project with one member, writing, planning and implementing a feature shows no
+  review offer and no gate message; going on past a failed check in a team project takes one
+  confirmation and is never asked again for that version.
+- **SC-011**: A project that upgrades to 002 and configures nothing sees no new prompt or message in
+  a working week unless someone objects to or declines something of theirs.
 
 ## Assumptions
 
@@ -525,7 +595,7 @@ reads `lease.md`, and is told C owns it and that it changed after 006's plan was
   An owner who isn't a member can't be asked for agreement; the request is refused with that
   reason.
 - The approval policy keys live in the extension's committed configuration file from 001; its
-  defaults are those in FR-016.
+  defaults are those in FR-016 (approvals off).
 - Approvals concern Spec Kit documents (spec and plan). Tasks and code review stay in the git host.
 - The gate is advisory in this feature. A hard merge gate (commit status) comes with the GitHub App
   in a later layer and will read the same approvals.
