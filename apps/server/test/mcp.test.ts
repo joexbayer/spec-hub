@@ -1,10 +1,12 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { app } from '../src/app.ts'
 import { db } from '../src/db/client.ts'
-import { clone, cloneBranch, cloneFeature, document } from '../src/db/schema.ts'
+import { clone, cloneBranch, cloneFeature, document, landPlace, user } from '../src/db/schema.ts'
 import { formatBoard } from '../src/mcp/format.ts'
 import { loadBoard } from '../src/services/board-query.ts'
+import { poll } from '../src/services/landing.ts'
 import {
   addMember,
   createProject,
@@ -76,12 +78,20 @@ async function setup(dirs = ['104-ledger']) {
 }
 
 describe('MCP endpoint', () => {
-  it('lists exactly the read-only board and feature tools', async () => {
+  it('lists the read-only board and feature tools and the landing lock tools', async () => {
     const { key } = await setup()
     const client = await connect('acme', key)
     const { tools } = await client.listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual(['board', 'feature'])
-    for (const t of tools) expect(t.annotations?.readOnlyHint).toBe(true)
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'board',
+      'feature',
+      'land_lock',
+      'land_unlock',
+      'landing',
+    ])
+    for (const t of tools.filter((t) => ['board', 'feature', 'landing'].includes(t.name))) {
+      expect(t.annotations?.readOnlyHint).toBe(true)
+    }
   })
 
   it('board returns the formatted board', async () => {
@@ -118,6 +128,96 @@ describe('MCP endpoint', () => {
     expect(both.isError).toBe(true)
     expect(textOf(both)).toContain('104-ledger')
     expect(textOf(both)).toContain('104-quota')
+  })
+})
+
+describe('MCP landing lock', () => {
+  async function two() {
+    const { alice, p, key } = await setup()
+    const bob = await createUser('bob')
+    await addMember(p, bob)
+    const bobKey = (await createToken(bob)).key
+    return { alice, bob, p, a: await connect('acme', key), b: await connect('acme', bobKey) }
+  }
+  const lock = (c: Awaited<ReturnType<typeof connect>>) => c.callTool({ name: 'land_lock', arguments: {} })
+  const unlockTool = (c: Awaited<ReturnType<typeof connect>>, landed: boolean) =>
+    c.callTool({ name: 'land_unlock', arguments: { landed } })
+
+  it('grants the first caller and queues the second', { timeout: 30_000 }, async () => {
+    const { a, b } = await two()
+    expect(textOf(await lock(a))).toMatch(/^You hold the landing lock for main/)
+    expect(textOf(await lock(b))).toMatch(/^Waiting for the landing lock: position 1, @alice holds it/)
+  })
+
+  it('hands over to a waiting land_lock call after land_unlock', { timeout: 30_000 }, async () => {
+    const { a, b } = await two()
+    await lock(a)
+    const waiting = lock(b)
+    await new Promise((r) => setTimeout(r, 1000))
+    const t0 = Date.now()
+    expect(textOf(await unlockTool(a, true))).toBe('Opened the landing lock (landed).')
+    expect(textOf(await waiting)).toMatch(/^You hold/)
+    expect(Date.now() - t0).toBeLessThan(5000)
+  })
+
+  it('landing shows holder and queue, and never creates a place', async () => {
+    const { alice, bob, p, b } = await two()
+    const landing = async () => textOf(await b.callTool({ name: 'landing', arguments: {} }))
+    const count = async () => (await db.select().from(landPlace)).length
+    expect(await landing()).toBe('The landing lock for main is free and nobody is waiting.')
+    expect(await count()).toBe(0)
+    const project = { id: p.id, defaultBranch: 'main' }
+    await poll(db, { project, userId: alice.id })
+    await poll(db, { project, userId: bob.id })
+    const out = await landing()
+    expect(out).toMatch(
+      /^Landing lock for main: @alice holds it \(0 min\); 1 waiting; about \d+ min per turn\.\n/,
+    )
+    expect(out).toMatch(/\n1\. @bob, waiting 0 min, about 10 min \(you\)$/)
+    expect(await count()).toBe(2)
+  })
+
+  it('counts landing as a check-in for a holder and never joins for anyone else', async () => {
+    const { alice, a, b, p } = await two()
+    await lock(a)
+    const checkedIn = async () =>
+      (await db.select().from(landPlace).where(eq(landPlace.userId, alice.id)))[0]?.checkedInAt.getTime()
+    const before = (await checkedIn()) ?? 0
+    await new Promise((r) => setTimeout(r, 20))
+    await a.callTool({ name: 'landing', arguments: {} })
+    expect((await checkedIn()) ?? 0).toBeGreaterThan(before)
+    await b.callTool({ name: 'landing', arguments: {} })
+    expect(await db.select().from(landPlace).where(eq(landPlace.projectId, p.id))).toHaveLength(1)
+  })
+
+  it('answers an internal error without params when a tool throws', async () => {
+    const { a } = await two()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const tx = vi
+      .spyOn(db, 'transaction')
+      .mockRejectedValueOnce(Object.assign(new Error('boom\nparams: secret'), { name: 'DrizzleQueryError' }))
+    const r = await a.callTool({ name: 'land_unlock', arguments: { landed: true } })
+    tx.mockRestore()
+    expect(r.isError).toBe(true)
+    expect(textOf(r)).toBe('internal error')
+    const line = String(log.mock.calls[0]?.[0])
+    log.mockRestore()
+    expect(JSON.parse(line)).toMatchObject({ event: 'mcp_tool_error', tool: 'land_unlock', message: 'boom' })
+    expect(line).not.toContain('secret')
+  })
+
+  it('says so when land_unlock has no place', async () => {
+    const { a } = await two()
+    expect(textOf(await unlockTool(a, false))).toBe('You have no place in the landing queue.')
+  })
+
+  it('does not echo control characters in a holder login', { timeout: 30_000 }, async () => {
+    const { alice, a, b } = await two()
+    await db.update(user).set({ githubLogin: 'al\u001b[31mice' }).where(eq(user.id, alice.id))
+    await lock(a)
+    const t = textOf(await lock(b))
+    expect(t).toContain('holds it')
+    expect(t).not.toContain('\u001b')
   })
 })
 

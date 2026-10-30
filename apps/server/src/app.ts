@@ -12,6 +12,7 @@ import { pool } from './db/client.ts'
 import { env } from './env.ts'
 import { mcpRoutes } from './mcp/handler.ts'
 import { boardRoutes } from './routes/board.ts'
+import { landingRoutes } from './routes/landing.ts'
 import { meRoutes } from './routes/me.ts'
 import { memberRoutes } from './routes/members.ts'
 import { peopleRoutes } from './routes/people.ts'
@@ -124,6 +125,7 @@ export const app = new Hono<AppEnv>()
   })
   .route('/api/r', reporterRoutes)
   .route('/api', boardRoutes)
+  .route('/api', landingRoutes)
   .route('/mcp', mcpRoutes)
   .route('/api', meRoutes)
   .route('/api', projectRoutes)

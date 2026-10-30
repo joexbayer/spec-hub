@@ -13,7 +13,7 @@ export type TestProject = typeof project.$inferSelect
 
 export async function truncateAll(): Promise<void> {
   await db.execute(
-    sql`TRUNCATE project, membership, clone, clone_branch, clone_feature, document, landed_feature, security_event, "user", session, account, verification, apikey RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE project, membership, clone, clone_branch, clone_feature, document, landed_feature, land_place, security_event, "user", session, account, verification, apikey RESTART IDENTITY CASCADE`,
   )
 }
 

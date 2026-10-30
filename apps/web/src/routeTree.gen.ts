@@ -17,6 +17,7 @@ import { Route as AppAdminProjectsRouteImport } from './routes/_app.admin.projec
 import { Route as AppPSlugIndexRouteImport } from './routes/_app.p.$slug.index'
 import { Route as AppPSlugAdminRouteImport } from './routes/_app.p.$slug.admin'
 import { Route as AppPSlugConnectRouteImport } from './routes/_app.p.$slug.connect'
+import { Route as AppPSlugLandingRouteImport } from './routes/_app.p.$slug.landing'
 import { Route as AppPSlugMapRouteImport } from './routes/_app.p.$slug.map'
 import { Route as AppPSlugFDirRouteImport } from './routes/_app.p.$slug.f.$dir'
 
@@ -59,6 +60,11 @@ const AppPSlugConnectRoute = AppPSlugConnectRouteImport.update({
   path: '/p/$slug/connect',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPSlugLandingRoute = AppPSlugLandingRouteImport.update({
+  id: '/p/$slug/landing',
+  path: '/p/$slug/landing',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPSlugMapRoute = AppPSlugMapRouteImport.update({
   id: '/p/$slug/map',
   path: '/p/$slug/map',
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/admin/projects': typeof AppAdminProjectsRoute
   '/p/$slug/admin': typeof AppPSlugAdminRoute
   '/p/$slug/connect': typeof AppPSlugConnectRoute
+  '/p/$slug/landing': typeof AppPSlugLandingRoute
   '/p/$slug/map': typeof AppPSlugMapRoute
   '/p/$slug/': typeof AppPSlugIndexRoute
   '/p/$slug/f/$dir': typeof AppPSlugFDirRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/admin/projects': typeof AppAdminProjectsRoute
   '/p/$slug/admin': typeof AppPSlugAdminRoute
   '/p/$slug/connect': typeof AppPSlugConnectRoute
+  '/p/$slug/landing': typeof AppPSlugLandingRoute
   '/p/$slug/map': typeof AppPSlugMapRoute
   '/p/$slug': typeof AppPSlugIndexRoute
   '/p/$slug/f/$dir': typeof AppPSlugFDirRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/_app/admin/projects': typeof AppAdminProjectsRoute
   '/_app/p/$slug/admin': typeof AppPSlugAdminRoute
   '/_app/p/$slug/connect': typeof AppPSlugConnectRoute
+  '/_app/p/$slug/landing': typeof AppPSlugLandingRoute
   '/_app/p/$slug/map': typeof AppPSlugMapRoute
   '/_app/p/$slug/': typeof AppPSlugIndexRoute
   '/_app/p/$slug/f/$dir': typeof AppPSlugFDirRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/admin/projects'
     | '/p/$slug/admin'
     | '/p/$slug/connect'
+    | '/p/$slug/landing'
     | '/p/$slug/map'
     | '/p/$slug/'
     | '/p/$slug/f/$dir'
@@ -125,6 +135,7 @@ export interface FileRouteTypes {
     | '/admin/projects'
     | '/p/$slug/admin'
     | '/p/$slug/connect'
+    | '/p/$slug/landing'
     | '/p/$slug/map'
     | '/p/$slug'
     | '/p/$slug/f/$dir'
@@ -137,6 +148,7 @@ export interface FileRouteTypes {
     | '/_app/admin/projects'
     | '/_app/p/$slug/admin'
     | '/_app/p/$slug/connect'
+    | '/_app/p/$slug/landing'
     | '/_app/p/$slug/map'
     | '/_app/p/$slug/'
     | '/_app/p/$slug/f/$dir'
@@ -205,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPSlugConnectRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/p/$slug/landing': {
+      id: '/_app/p/$slug/landing'
+      path: '/p/$slug/landing'
+      fullPath: '/p/$slug/landing'
+      preLoaderRoute: typeof AppPSlugLandingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/p/$slug/map': {
       id: '/_app/p/$slug/map'
       path: '/p/$slug/map'
@@ -228,6 +247,7 @@ interface AppRouteChildren {
   AppAdminProjectsRoute: typeof AppAdminProjectsRoute
   AppPSlugAdminRoute: typeof AppPSlugAdminRoute
   AppPSlugConnectRoute: typeof AppPSlugConnectRoute
+  AppPSlugLandingRoute: typeof AppPSlugLandingRoute
   AppPSlugMapRoute: typeof AppPSlugMapRoute
   AppPSlugIndexRoute: typeof AppPSlugIndexRoute
   AppPSlugFDirRoute: typeof AppPSlugFDirRoute
@@ -239,6 +259,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminProjectsRoute: AppAdminProjectsRoute,
   AppPSlugAdminRoute: AppPSlugAdminRoute,
   AppPSlugConnectRoute: AppPSlugConnectRoute,
+  AppPSlugLandingRoute: AppPSlugLandingRoute,
   AppPSlugMapRoute: AppPSlugMapRoute,
   AppPSlugIndexRoute: AppPSlugIndexRoute,
   AppPSlugFDirRoute: AppPSlugFDirRoute,

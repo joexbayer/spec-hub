@@ -9,6 +9,8 @@ rest of the team is doing.
 - **Dependency map:** what each feature waits on, what is blocked and the critical path.
 - **MCP server:** your agent (Claude Code, VS Code, Cursor and others) reads the board and any
   feature's spec, plan or tasks.
+- **Landing lock:** agents take turns landing, so a long pre-land gate is not made stale by someone
+  else's land.
 
 The hub never writes to your repository. People sign in with GitHub and see nothing until an admin
 adds them to a project.
@@ -48,6 +50,22 @@ Open the hub's **Connect** page. It has every command filled in for your hub and
 
 More on the reporter and agents: [packages/extension/README.md](packages/extension/README.md).
 
+## Landing lock
+
+For teams that run a long gate (tests, builds, evals) on their own machine before landing to the
+default branch. Optional: nothing changes for anyone who doesn't use it.
+
+- `land_lock`: an agent asks for the project's lock before it rebases, gates and lands. If someone
+  else holds it, the agent gets a place in a first-come, first-served queue; each call waits up to
+  25 seconds, and the agent calls again until it holds the lock.
+- `land_unlock`: the holder opens the lock when it has landed or given up, and the next agent in
+  the queue gets it.
+- `landing`: shows who holds the lock and who is waiting, with estimates.
+
+A lock opens by itself 60 minutes after the holder's last call. Anyone on the project can open it
+earlier, or remove someone from the queue, on the **Landing** page; the history records who did.
+The lock is advisory: the hub never blocks a push.
+
 ## Develop
 
 Needs Node 24, pnpm 12 and Postgres 18.
@@ -75,7 +93,7 @@ pnpm check                    # typecheck, lint, tests, audit
 - **Sign-in:** GitHub only, identity scopes only. Access is per project, keyed on the numeric GitHub
   account id.
 - **Tokens:** personal, stored hashed, and revocable on the Tokens page.
-- **Agents:** the MCP tools are read-only. Text written by team members is passed to agents marked
+- **Agents:** the MCP tools read the board and change nothing but the landing queue. Text written by team members is passed to agents marked
   as data, not as instructions.
 - **Reporting a vulnerability:** open a private security advisory on the repository rather than a
   public issue.

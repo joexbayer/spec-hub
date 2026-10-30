@@ -85,7 +85,9 @@ The hub's Connect page fills in the URL and the token.
 
 Check it works: ask your agent "What is the team working on?" It should call the `board` tool.
 
-The server exposes two tools, `board` and `feature`. Both are read-only.
+The server exposes `board` and `feature`, which are read-only, and the landing lock: `land_lock`,
+`land_unlock` and `landing` (see the main README). The lock tools change only the hub's landing
+queue, never the repository.
 
 Commit this rule in `.claude/settings.json` so the tools never prompt:
 

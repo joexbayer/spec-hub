@@ -34,6 +34,15 @@ description: How to run, test and change Spec Hub locally — Homebrew Postgres,
 - `security_event` is append-only (a trigger raises on UPDATE/DELETE): tests cannot clear it, only
   `truncateAll` can. `sessionCookie()` writes a hub-level `sign_in` event for that user, and the project
   security log includes members' hub-level events, so expect it in log assertions.
+- **Prove a new test can fail**: revert the fix, run just that test (`-t '<name>'`), restore. Twice in
+  003 a test passed without its fix (the hub's JSON already escaped the bytes under test; a race the
+  test meant to provoke resolved the other way).
+- **Fake time with `vi.useFakeTimers({ toFake: ['Date'] })` only.** Faking the timers pg uses hangs
+  the pool. Code that loops on `Date.now()` (the landing lock's `ask`) never reaches its deadline under
+  a frozen fake clock: add `shouldAdvanceTime: true` for that test.
+- **Landing lock tests** (`apps/server/test/landing.test.ts`, `mcp.test.ts`): call `ask(db, c, deadlineMs,
+  everyMs)` with a short deadline; through MCP, `land_lock` waits the real 25 s, so keep those tests few
+  and give them a 30 s timeout.
 - To prove nothing secret is logged, spy every console level and check `inspect(args)`; drizzle's
   failed-query errors carry the query params (session tokens) in `message` and `cause`.
 

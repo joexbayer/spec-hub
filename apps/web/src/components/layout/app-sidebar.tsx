@@ -7,6 +7,7 @@ import {
   Columns3,
   KeyRound,
   LayoutDashboard,
+  Lock,
   LogOut,
   Network,
   Plug,
@@ -214,6 +215,13 @@ export function AppSidebar() {
                 <NavItem label="Connect" icon={<Plug />} active={path.endsWith('/connect')}>
                   {(inner) => (
                     <Link to="/p/$slug/connect" params={{ slug: project.slug }}>
+                      {inner}
+                    </Link>
+                  )}
+                </NavItem>
+                <NavItem label="Landing" icon={<Lock />} active={path.endsWith('/landing')}>
+                  {(inner) => (
+                    <Link to="/p/$slug/landing" params={{ slug: project.slug }}>
                       {inner}
                     </Link>
                   )}

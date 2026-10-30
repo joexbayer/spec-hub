@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -12,6 +13,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
 import { user } from './auth-schema.ts'
@@ -157,5 +159,42 @@ export const securityEvent = pgTable(
   (t) => [
     index('security_event_project_at_idx').on(t.projectId, t.at.desc()),
     index('security_event_at_idx').on(t.at),
+  ],
+)
+
+export const landState = pgEnum('land_state', ['waiting', 'holding', 'ended'])
+export const landOutcome = pgEnum('land_outcome', [
+  'landed',
+  'released',
+  'expired',
+  'skipped',
+  'left',
+  'removed',
+])
+
+// One row per member's request for the landing lock; live rows are the queue, ended rows the history (specs/003-landing-queue).
+export const landPlace = pgTable(
+  'land_place',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    state: landState('state').notNull(),
+    outcome: landOutcome('outcome'),
+    askedAt: timestamp('asked_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    checkedInAt: timestamp('checked_in_at', { withTimezone: true }).notNull(),
+    endedBy: text('ended_by').references(() => user.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    uniqueIndex('land_place_live_member').on(t.projectId, t.userId).where(sql`${t.state} <> 'ended'`),
+    uniqueIndex('land_place_holder').on(t.projectId).where(sql`${t.state} = 'holding'`),
+    index('land_place_project_id_idx').on(t.projectId, t.id),
+    check('land_place_outcome_check', sql`(${t.state} = 'ended') = (${t.outcome} IS NOT NULL)`),
   ],
 )

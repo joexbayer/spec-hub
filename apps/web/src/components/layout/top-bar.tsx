@@ -36,7 +36,12 @@ import { meQuery } from '@/lib/query'
 type Crumb = { label: string; board?: string }
 
 const VIEW_LABELS: Record<string, string> = { pipeline: 'Pipeline', work: 'Work map' }
-const PROJECT_PAGES: Record<string, string> = { map: 'Dependency map', connect: 'Connect', admin: 'Admin' }
+const PROJECT_PAGES: Record<string, string> = {
+  map: 'Dependency map',
+  connect: 'Connect',
+  landing: 'Landing',
+  admin: 'Admin',
+}
 
 function useCrumbs(): Crumb[] {
   const queryClient = useQueryClient()

@@ -2,6 +2,7 @@
 
 export * from './board.ts'
 export * from './graphs.ts'
+export * from './landing.ts'
 export * from './manifest.ts'
 export * from './owner.ts'
 export * from './parse-document.ts'
