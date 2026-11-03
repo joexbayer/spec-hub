@@ -15,6 +15,31 @@ rest of the team is doing.
 The hub never writes to your repository. People sign in with GitHub and see nothing until an admin
 adds them to a project.
 
+![The board of an example project: eight features in flight with phase, owner and progress](docs/images/board.png)
+
+<details>
+<summary>More screenshots</summary>
+
+**Dependency map**, read from each spec's "Depends on" line:
+
+![Dependency map](docs/images/map.png)
+
+**A feature**, rendered from the developer's own branch before it is pushed:
+
+![Feature page](docs/images/feature.png)
+
+**Pipeline**, one lane per Spec Kit phase:
+
+![Pipeline](docs/images/pipeline.png)
+
+**Light mode**:
+
+![The board in light mode](docs/images/board-light.png)
+
+</details>
+
+The screenshots show a made-up project; its five members reported through the real git hook.
+
 ## How it works
 
 ```
@@ -65,6 +90,8 @@ default branch. Optional: nothing changes for anyone who doesn't use it.
 A lock opens by itself 60 minutes after the holder's last call. Anyone on the project can open it
 earlier, or remove someone from the queue, on the **Landing** page; the history records who did.
 The lock is advisory: the hub never blocks a push.
+
+![Landing page: one holder, two members waiting with estimates, and the history of turns](docs/images/landing.png)
 
 ## Develop
 
