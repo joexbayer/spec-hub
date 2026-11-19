@@ -59,3 +59,26 @@ it('a document the parser cannot handle shows as plain text instead of breaking 
   expect(container.textContent).toContain('could not be rendered')
   expect(container.querySelector('pre')?.textContent).toBe(hostile)
 })
+
+describe('Document links on the hub', () => {
+  const hrefs = (markdown: string) => {
+    const { container } = render(<Document markdown={markdown} slug="acme" />)
+    return [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))
+  }
+
+  it('turns spec links into hub pages and tabs', () => {
+    expect(
+      hrefs('[dep](../099-recon/spec.md) [p](../099-recon/plan.md) [own](tasks.md) [s](#goals)'),
+    ).toEqual(['/p/acme/f/099-recon', '/p/acme/f/099-recon?tab=plan', '?tab=tasks', '#goals'])
+  })
+
+  it('keeps external links and shows links the hub has no page for as text', () => {
+    const { container, getByText } = render(
+      <Document markdown={'[gh](https://github.com/o/r) [doc](../../docs/x.md)'} slug="acme" />,
+    )
+    expect([...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      'https://github.com/o/r',
+    ])
+    expect(getByText('doc').tagName).toBe('SPAN')
+  })
+})

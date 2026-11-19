@@ -347,6 +347,7 @@ export function FeaturePage({
         </Panel>
 
         <DocumentTabs
+          slug={slug}
           shown={shown}
           tab={tab}
           onTabChange={onTabChange}

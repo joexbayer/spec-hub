@@ -41,17 +41,17 @@ describe('DocumentTabs', () => {
   afterEach(cleanup)
 
   it('renders content, missing and too-large messages', () => {
-    const { rerender } = render(<DocumentTabs shown={shown} tab="spec" onTabChange={() => {}} />)
+    const { rerender } = render(<DocumentTabs slug="acme" shown={shown} tab="spec" onTabChange={() => {}} />)
     expect(screen.getByText('Hello spec')).toBeTruthy()
-    rerender(<DocumentTabs shown={shown} tab="plan" onTabChange={() => {}} />)
+    rerender(<DocumentTabs slug="acme" shown={shown} tab="plan" onTabChange={() => {}} />)
     expect(screen.getByText('This branch has no plan.md yet.')).toBeTruthy()
-    rerender(<DocumentTabs shown={shown} tab="tasks" onTabChange={() => {}} />)
+    rerender(<DocumentTabs slug="acme" shown={shown} tab="tasks" onTabChange={() => {}} />)
     expect(screen.getByText('Too large to display (9999999 bytes). Read it in the repository.')).toBeTruthy()
   })
 
   it('reports tab changes', () => {
     const onTabChange = vi.fn()
-    render(<DocumentTabs shown={shown} tab="spec" onTabChange={onTabChange} />)
+    render(<DocumentTabs slug="acme" shown={shown} tab="spec" onTabChange={onTabChange} />)
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'plan' }))
     fireEvent.click(screen.getByRole('tab', { name: 'plan' }))
     expect(onTabChange).toHaveBeenCalledWith('plan')

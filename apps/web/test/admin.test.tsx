@@ -88,3 +88,38 @@ test('the waiting page shows the login to give an admin and signs out', () => {
   fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
   expect(onSignOut).toHaveBeenCalledOnce()
 })
+
+test('removing a member refreshes me, so a removed or demoted admin loses admin views', async () => {
+  const res = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 })
+      if (url.endsWith('/members')) {
+        return res(200, [
+          {
+            githubId: '1',
+            githubLogin: 'me',
+            userId: 'u1',
+            role: 'admin',
+            name: null,
+            image: null,
+            pending: false,
+          },
+        ])
+      }
+      return res(200, [])
+    }),
+  )
+  const client = new QueryClient()
+  client.setQueryData(['me'], { projects: [] })
+  render(
+    <QueryClientProvider client={client}>
+      <MembersTab slug="demo" />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove me' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
+  await waitFor(() => expect(client.getQueryState(['me'])?.isInvalidated).toBe(true))
+})
