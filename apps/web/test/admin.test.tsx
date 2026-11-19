@@ -21,6 +21,19 @@ test('create-project form rejects an invalid slug without calling fetch', async 
   await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
 })
 
+test('create-project form rejects a branch name the hub would refuse, in the field', async () => {
+  const fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+  render(<CreateProjectDialog onCreated={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: /create project/i }))
+  fireEvent.change(await screen.findByLabelText('Slug'), { target: { value: 'demo' } })
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Demo' } })
+  fireEvent.change(screen.getByLabelText('Default branch'), { target: { value: 'release 1' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+  expect(await screen.findByText('Not a valid branch name')).toBeTruthy()
+  await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
+})
+
 test('security event details render as plain key: value text', () => {
   expect(detailText({ githubLogin: 'ana', role: 'admin' })).toBe('githubLogin: ana, role: admin')
 })

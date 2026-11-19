@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { type ProjectSettings, projectSettings } from '@spec-hub/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Controller, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
@@ -9,9 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getJson, send } from './http'
-import { type SettingsForm, settingsSchema } from './schema'
 
-type Settings = SettingsForm & { slug: string; createdAt: string }
+type Settings = ProjectSettings & { slug: string; createdAt: string }
 
 export function SettingsTab({ slug }: { slug: string }) {
   const { data } = useQuery({
@@ -22,7 +22,7 @@ export function SettingsTab({ slug }: { slug: string }) {
   return <SettingsPanel slug={slug} current={data} />
 }
 
-function SettingsPanel({ slug, current }: { slug: string; current: SettingsForm }) {
+function SettingsPanel({ slug, current }: { slug: string; current: ProjectSettings }) {
   const queryClient = useQueryClient()
   const {
     register,
@@ -30,8 +30,8 @@ function SettingsPanel({ slug, current }: { slug: string; current: SettingsForm 
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<SettingsForm>({
-    resolver: zodResolver(settingsSchema),
+  } = useForm<ProjectSettings>({
+    resolver: zodResolver(projectSettings),
     defaultValues: {
       name: current.name,
       defaultBranch: current.defaultBranch,
@@ -41,7 +41,7 @@ function SettingsPanel({ slug, current }: { slug: string; current: SettingsForm 
 
   const submit = handleSubmit(async (values) => {
     const body = Object.fromEntries(
-      Object.entries(values).filter(([k, v]) => v !== current[k as keyof SettingsForm]),
+      Object.entries(values).filter(([k, v]) => v !== current[k as keyof ProjectSettings]),
     )
     if (Object.keys(body).length === 0) {
       toast.success('No changes')

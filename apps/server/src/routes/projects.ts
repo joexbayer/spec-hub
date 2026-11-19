@@ -1,6 +1,6 @@
+import { numbering, projectFields, projectSettings, refName } from '@spec-hub/core'
 import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { z } from 'zod'
 import type { AppEnv } from '../app-env.ts'
 import { requireHubAdmin, requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
@@ -8,26 +8,11 @@ import { clone, cloneFeature, membership, project } from '../db/schema.ts'
 import { audit } from '../services/audit.ts'
 import { zv } from '../validate.ts'
 
-const refName = z
-  .string()
-  .min(1)
-  .max(255)
-  .refine(
-    (s) =>
-      !/[\s~^:?*[\\]|\.\.|^-|\/$|\.lock$|^@$/.test(s) &&
-      ![...s].some((ch) => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127),
-    'invalid ref name',
-  )
-const numbering = z.enum(['sequential', 'timestamp'])
-
-const createBody = z.object({
-  slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
-  name: z.string().min(1).max(100),
+const createBody = projectFields.extend({
   defaultBranch: refName.default('main'),
   numbering: numbering.default('sequential'),
 })
-const patchBody = z
-  .object({ name: z.string().min(1).max(100), defaultBranch: refName, numbering })
+const patchBody = projectSettings
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'at least one field is required')
 
