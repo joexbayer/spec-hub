@@ -30,7 +30,7 @@ function board(over: Partial<Board> = {}): Board {
     stale: [],
     recentlyLanded: [],
     landedDirs: [],
-    members: [{ userId: 'u1', githubLogin: 'alice', name: 'Alice', image: null, emails: [] }],
+    members: [{ userId: 'u1', githubLogin: 'alice', name: 'Alice', image: null }],
     ...over,
   }
 }

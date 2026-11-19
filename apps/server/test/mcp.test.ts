@@ -177,6 +177,14 @@ describe('MCP landing lock', () => {
     expect(await count()).toBe(2)
   })
 
+  it('landing tells the caller when the lock is theirs', async () => {
+    const { a } = await two()
+    await lock(a)
+    expect(textOf(await a.callTool({ name: 'landing', arguments: {} }))).toMatch(
+      /^Landing lock for main: you hold it \(0 min\): land, then call land_unlock; 0 waiting/,
+    )
+  })
+
   it('counts landing as a check-in for a holder and never joins for anyone else', async () => {
     const { alice, a, b, p } = await two()
     await lock(a)

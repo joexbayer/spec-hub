@@ -53,3 +53,7 @@ and the first line of the message, never params.
   ```
 
   Empty: `The landing lock for main is free and nobody is waiting.`
+
+  When the caller holds the lock (also when this call just picked up a handed-over lock), the
+  holder reads `you hold it (0 min): land, then call land_unlock` instead of `@login holds it`.
+  An agent often does not know its own login, so it must not have to recognise itself.

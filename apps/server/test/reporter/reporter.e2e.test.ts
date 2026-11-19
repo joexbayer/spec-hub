@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
@@ -294,5 +295,73 @@ describe('reporter end to end (real hub, real git)', () => {
     expect(repo.git('config', '--list', '--local')).toBe(configBefore)
     expect(hooksSnapshot(hooksDir)).toEqual(hooksBefore)
     expect(existsSync(join(repo.commonDir(), 'spec-hub'))).toBe(false)
+  })
+
+  it('mcp writes a .mcp.json whose headersHelper authenticates the agent to the project', async () => {
+    const { repo, sb, project } = await connectedClone()
+
+    const created = await repo.spechub(['mcp'])
+    expect(created.status).toBe(0)
+    const server = JSON.parse(readFileSync(join(repo.dir, '.mcp.json'), 'utf8')).mcpServers['spec-hub']
+    expect(server.url).toBe(`http://127.0.0.1:${hub.port}/mcp/${project.slug}`)
+
+    // as Claude Code runs it: through a shell, from the project directory
+    const helper = await sb.runAsync(repo.dir, 'sh', ['-c', server.headersHelper], {
+      env: { CLAUDE_CODE_MCP_SERVER_URL: server.url },
+    })
+    expect(helper.status).toBe(0)
+    const client = new Client({ name: 'test', version: '0.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(server.url), {
+        requestInit: { headers: JSON.parse(helper.stdout) },
+      }),
+    )
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain('board')
+    await client.close()
+
+    const again = await repo.spechub(['mcp'])
+    expect(again.status).toBe(0)
+    expect(again.stdout).toContain('already has')
+  })
+
+  it('mcp prints the entry instead of touching an existing .mcp.json', async () => {
+    const { repo } = await connectedClone()
+    const existing = '{\n  "mcpServers": {\n    "other": { "type": "stdio", "command": "x" }\n  }\n}\n'
+    repo.write('.mcp.json', existing)
+
+    const r = await repo.spechub(['mcp'])
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain(
+      '"headersHelper": "sh .specify/extensions/spec-hub/scripts/spec-hub mcp-headers"',
+    )
+    expect(readFileSync(join(repo.dir, '.mcp.json'), 'utf8')).toBe(existing)
+  })
+
+  it('mcp-headers tells the developer to connect when there is no token', async () => {
+    seq++
+    const p = await createProject(`proj${seq}`)
+    const repo = new Sandbox().repo({ hubPort: hub.port, project: p.slug })
+
+    const r = await repo.spechub(['mcp-headers'], {
+      env: { CLAUDE_CODE_MCP_SERVER_URL: `http://127.0.0.1:${hub.port}/mcp/${p.slug}` },
+    })
+    expect(r.status).toBe(1)
+    expect(r.stdout).toBe('')
+    expect(r.stderr).toContain('connect')
+  })
+
+  it('mcp-headers never sends the token to a url other than the configured hub', async () => {
+    const { repo, token } = await connectedClone()
+
+    for (const env of [
+      { CLAUDE_CODE_MCP_SERVER_URL: 'https://evil.example/mcp/x' },
+      { CLAUDE_CODE_MCP_SERVER_URL: '' },
+    ]) {
+      const r = await repo.spechub(['mcp-headers'], { env })
+      expect(r.status).toBe(1)
+      expect(r.stdout).toBe('')
+      expect(r.stderr).not.toContain(token.key)
+      expect(r.stderr).toContain('refusing')
+    }
   })
 })

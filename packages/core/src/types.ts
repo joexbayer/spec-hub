@@ -25,6 +25,9 @@ export interface MemberIdentity {
   emails: string[] // lowercase: account email plus every commit email their clones reported
 }
 
+/** A member as the board shows them: emails only resolve owners and never leave the hub. */
+export type BoardMember = Omit<MemberIdentity, 'emails'>
+
 export type Owner =
   | { kind: 'member'; userId: string; githubLogin: string; name: string; image: string | null }
   | { kind: 'handle'; handle: string }
@@ -79,5 +82,5 @@ export interface Board {
   stale: BoardEntry[]
   recentlyLanded: LandedFeature[]
   landedDirs: string[]
-  members: MemberIdentity[]
+  members: BoardMember[]
 }

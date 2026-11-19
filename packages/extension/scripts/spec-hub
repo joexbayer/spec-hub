@@ -30,6 +30,10 @@ commands:
                          report them again
   hooks <dir>            team-managed hooks: add the spec-hub line to the four hooks in
                          <dir> (relative to the work tree root); commit the result
+  mcp                    team setup: add the spec-hub MCP server to .mcp.json, with the
+                         token read from your connect credentials; commit the result
+  mcp-headers            called by the agent (.mcp.json headersHelper): print the auth
+                         header as JSON
   report [--quiet]       send this clone's in-flight features to the hub
   report --print-manifest
                          debug: print the manifest to stdout instead of sending it
@@ -683,8 +687,9 @@ install_hooks() {
   done
 }
 
-cmd_connect() {
-  [ $# -eq 0 ] || usage
+# enter_configured_repo: cd to the work tree root and set HUB_URL and PROJECT from a valid
+# config; exit 1 with a message otherwise.
+enter_configured_repo() {
   if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     printf 'spec-hub: not inside a git work tree.\n' >&2
     exit 1
@@ -728,6 +733,11 @@ cmd_connect() {
         exit 1 ;;
     esac
   fi
+}
+
+cmd_connect() {
+  [ $# -eq 0 ] || usage
+  enter_configured_repo
   load_hub
   if [ -z "$TOKEN" ]; then
     read_token
@@ -902,6 +912,50 @@ cmd_hooks() {
   exit 0
 }
 
+# mcp_entry: the "spec-hub" member of .mcp.json's mcpServers, indented for it.
+mcp_entry() {
+  printf '    "spec-hub": {\n      "type": "http",\n      "url": %s,\n      "headersHelper": %s\n    }' \
+    "$(json_str "$HUB_URL/mcp/$PROJECT")" "$(json_str "sh $SELF mcp-headers")"
+}
+
+cmd_mcp() {
+  [ $# -eq 0 ] || usage
+  enter_configured_repo
+  if [ ! -e .mcp.json ]; then
+    printf '{\n  "mcpServers": {\n%s\n  }\n}\n' "$(mcp_entry)" > .mcp.json || exit 1
+    printf 'Created .mcp.json\n'
+    printf 'Commit it so every checkout and teammate gets the server: git add .mcp.json && git commit\n'
+    exit 0
+  fi
+  if grep -qF "$SELF mcp-headers" .mcp.json; then
+    printf '.mcp.json already has the spec-hub server.\n'
+    exit 0
+  fi
+  # no JSON tool to merge with: the developer pastes the entry
+  printf 'spec-hub: .mcp.json exists. Put this under "mcpServers", replacing any spec-hub entry:\n\n%s\n' \
+    "$(mcp_entry)" >&2
+  exit 1
+}
+
+cmd_mcp_headers() {
+  [ $# -eq 0 ] || usage
+  enter_configured_repo
+  # The token is kept for hub_url; .mcp.json's url is a separate committed value. Claude Code
+  # names the server it will send the header to, so hand the token only to this project's hub.
+  url="$HUB_URL/mcp/$PROJECT"
+  if [ "${CLAUDE_CODE_MCP_SERVER_URL-}" != "$url" ]; then
+    printf 'spec-hub: refusing to send your token to "%s"; .mcp.json must use %s\n' \
+      "$(printf '%s' "${CLAUDE_CODE_MCP_SERVER_URL-}" | tr -d '\000-\037')" "$url" >&2
+    exit 1
+  fi
+  load_hub
+  if [ -z "$TOKEN" ]; then
+    printf 'spec-hub: no token for %s. Run: sh %s connect\n' "$HUB_URL" "$SELF" >&2
+    exit 1
+  fi
+  printf '{"Authorization":%s}\n' "$(json_str "Bearer $TOKEN")"
+}
+
 # ---------------------------------------------------------------- dispatcher
 
 [ $# -ge 1 ] || usage
@@ -915,5 +969,7 @@ case "$command" in
   status) cmd_status "$@" ;;
   private) cmd_private "$@" ;;
   hooks) cmd_hooks "$@" ;;
+  mcp) cmd_mcp "$@" ;;
+  mcp-headers) cmd_mcp_headers "$@" ;;
   *) usage ;;
 esac

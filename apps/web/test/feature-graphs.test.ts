@@ -22,7 +22,7 @@ const board = (inFlight: BoardEntry[]): Board => ({
   stale: [],
   recentlyLanded: [],
   landedDirs: [],
-  members: [{ userId: 'u1', githubLogin: 'ana', name: 'Ana', image: null, emails: [] }],
+  members: [{ userId: 'u1', githubLogin: 'ana', name: 'Ana', image: null }],
 })
 
 test('versions: two carriers with one branch each', () => {

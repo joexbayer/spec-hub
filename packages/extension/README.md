@@ -29,13 +29,18 @@ sh .specify/extensions/spec-hub/scripts/spec-hub private add backup/
 Agents read the same board over MCP. The agent connects to `https://<hub>/mcp/<project>` with the same
 personal token used for `connect`.
 
-Claude Code:
+Claude Code, once per repository:
 
 ```sh
-claude mcp add --transport http spec-hub https://<hub>/mcp/<project> --header "Authorization: Bearer <token>"
+sh .specify/extensions/spec-hub/scripts/spec-hub mcp
 ```
 
-To share it with the team, commit `.mcp.json` (no token; each person sets `SPEC_HUB_TOKEN` in their shell profile):
+It writes the `spec-hub` server into `.mcp.json` (or prints the entry to paste when the file
+already exists). Commit it: every checkout, worktree and teammate gets the server. The file holds
+no token; its `headersHelper` runs `spec-hub mcp-headers`, which reads the token you gave `connect`.
+
+Without the extension, commit this `.mcp.json` instead (each person sets `SPEC_HUB_TOKEN` in their
+shell profile):
 
 ```json
 {
