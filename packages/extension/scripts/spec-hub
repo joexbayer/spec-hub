@@ -947,7 +947,9 @@ cmd_mcp_headers() {
   [ $# -eq 0 ] || usage
   enter_configured_repo
   # The token is kept for hub_url; .mcp.json's url is a separate committed value. Claude Code
-  # names the server it will send the header to, so hand the token only to this project's hub.
+  # names the server it will send the header to: refuse unless it is this project's hub, so an
+  # edited or mistaken url (staging, another project) never gets the token. headersHelper itself
+  # is a committed command and trusted like the hooks.
   url="$HUB_URL/mcp/$PROJECT"
   if [ "${CLAUDE_CODE_MCP_SERVER_URL-}" != "$url" ]; then
     printf 'spec-hub: refusing to send your token to "%s"; .mcp.json must use %s\n' \

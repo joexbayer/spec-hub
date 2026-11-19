@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { Document } from '@/components/document'
+import { Document, hubHref } from '@/components/document'
 
 vi.mock('mermaid', () => ({
   default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: '<svg></svg>' })) },
@@ -80,5 +80,13 @@ describe('Document links on the hub', () => {
       'https://github.com/o/r',
     ])
     expect(getByText('doc').tagName).toBe('SPAN')
+  })
+})
+
+describe('hubHref', () => {
+  it('keeps the shown branch when switching tabs and drops blanked links', () => {
+    expect(hubHref('plan.md', 'acme', '?branch=feat-b&tab=spec')).toBe('?branch=feat-b&tab=plan')
+    expect(hubHref('../099-x/spec.md', 'acme', '?branch=feat-b')).toBe('/p/acme/f/099-x')
+    expect(hubHref('', 'acme')).toBeUndefined()
   })
 })

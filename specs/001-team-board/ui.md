@@ -140,7 +140,9 @@ each shows a tick when it's done, and the page polls for progress:
 2. **Create a token.** Opens a dialog that shows the token once, with a copy button.
 3. **Connect this clone.** A `CopyBlock` with `sh .specify/extensions/spec-hub/scripts/spec-hub
    connect`. It ticks when the hub stores this person's first report, "3 features reported".
-4. **Connect your agent.** A `CopyBlock` with `claude mcp add …`, with the slug and token filled in.
+4. **Connect your agent.** A `CopyBlock` with `sh .specify/extensions/spec-hub/scripts/spec-hub mcp`
+   (writes the team's `.mcp.json`; see research R10), then the `.mcp.json` for repositories without
+   the extension and `claude mcp add …` for a single checkout, with the slug and token filled in.
    It's marked done when the developer clicks "Done", since the hub can't tell an MCP call apart
    from a report.
 

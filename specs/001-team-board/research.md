@@ -180,6 +180,13 @@ Each entry gives the decision, the rationale and the alternatives considered.
 
 ## R10. Agent connection: `claude mcp add`, not a committed `.mcp.json`
 
+> **Superseded (2026-11-19).** The connect page now leads with a committed `.mcp.json` written by
+> `spec-hub mcp`. Its `headersHelper` runs `spec-hub mcp-headers`, which reads the token `connect`
+> stored, so there is no `${SPEC_HUB_TOKEN}` and no missing-variable warning. Local scope had to be
+> repeated in every checkout and worktree. Trade-off kept from below: a teammate who has not run
+> `connect` sees the server fail to connect, with a message telling them to run it.
+> `claude mcp add` remains on the connect page for "just this checkout".
+
 - **Decision**: The connect page shows the following command, with the project slug and the new
   token filled in:
 

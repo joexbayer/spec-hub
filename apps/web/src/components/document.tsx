@@ -19,13 +19,20 @@ const DOC_FILES: Record<string, 'spec' | 'plan' | 'tasks'> = {
 }
 
 // A relative link in a spec is written for the repository (../099-x/spec.md). On the hub it
-// becomes that feature's page, or a tab of this one; undefined when the hub has no page for it.
-export function hubHref(href: string, slug: string): string | undefined {
+// becomes that feature's page, or a tab of this one (keeping `search`, so the branch shown stays);
+// undefined when the hub has no page for it, also for a link urlTransform blanked.
+export function hubHref(href: string, slug: string, search = ''): string | undefined {
+  if (href === '') return undefined
   if (href.startsWith('#')) return href
   const target = specLink(href)
   if (!target) return /^[a-z][a-z0-9+.-]*:/i.test(href) ? href : undefined
   const tab = DOC_FILES[target.file] ?? (target.file === '' ? 'spec' : undefined)
-  if (target.dir === null) return tab ? `?tab=${tab}` : undefined
+  if (target.dir === null) {
+    if (!tab) return undefined
+    const q = new URLSearchParams(search)
+    q.set('tab', tab)
+    return `?${q}`
+  }
   const page = `/p/${encodeURIComponent(slug)}/f/${encodeURIComponent(target.dir)}`
   return tab && tab !== 'spec' ? `${page}?tab=${tab}` : page
 }
@@ -174,7 +181,7 @@ export function Document({ markdown, slug }: { markdown: string; slug?: string }
     return {
       ...components,
       a: ({ href, children, ...p }) => {
-        const to = href === undefined ? undefined : hubHref(href, slug)
+        const to = href === undefined ? undefined : hubHref(href, slug, window.location.search)
         if (to === undefined) return <span>{children}</span>
         return (
           <Anchor href={to} {...p}>
