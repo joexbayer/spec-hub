@@ -17,9 +17,10 @@ import { GraphCanvas } from '@/features/graphs/graph-canvas'
 import { dagreLayout, nodeSize, pipelineLayout } from '@/features/graphs/layout'
 import { EDGE_SWATCH, GraphLegend, NODE_SWATCH } from '@/features/graphs/legend'
 import { type FeatureNodeData, featureAriaLabel } from '@/features/graphs/nodes'
+import type { ApiError } from '@/lib/api'
 import { meQuery } from '@/lib/query'
 import { shortAgo } from '@/lib/time'
-import { type LastReportAt, useBoard } from './board-query'
+import { isFinal, type LastReportAt, useBoard } from './board-query'
 import { BoardStats } from './board-stats'
 import { FeatureList } from './feature-list'
 import { SideRail } from './side-rail'
@@ -85,6 +86,28 @@ export function BoardPage({
             <Skeleton className="h-96 w-full rounded-xl" />
           </div>
         </div>
+      ) : isFinal(query.error) ? (
+        <Panel role="alert">
+          <PanelBody>
+            <EmptyState
+              icon={AlertTriangle}
+              title={
+                (query.error as ApiError).status === 403
+                  ? 'You are not a member of this project'
+                  : `There is no project called ${slug}`
+              }
+              action={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/">Go to your projects</Link>
+                </Button>
+              }
+            >
+              {(query.error as ApiError).status === 403
+                ? 'Ask one of its admins to add you.'
+                : 'Check the link, or pick a project you belong to.'}
+            </EmptyState>
+          </PanelBody>
+        </Panel>
       ) : query.isError || !board ? (
         <Panel role="alert">
           <PanelBody>

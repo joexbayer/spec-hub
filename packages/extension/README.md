@@ -1,6 +1,6 @@
 # Spec Hub
 
-Spec Hub is a Spec Kit extension that silently reports your committed in-flight feature work to your team's Spec Hub. It needs only git and curl, and prints nothing in normal use.
+Spec Hub is a Spec Kit extension that silently reports your committed in-flight feature work to your team's Spec Hub. It needs only git (2.31 or later) and curl, and prints nothing in normal use.
 
 ## Install
 
@@ -18,6 +18,14 @@ sh .specify/extensions/spec-hub/scripts/spec-hub connect
 
 Clone-managed hooks run a copy of the reporter kept in `.git/spec-hub/`, never the checked-out one. Run `connect` again after upgrading the extension or moving the repository.
 
+If the repository sets `core.hooksPath` (husky, `.githooks`), install the hooks there once and commit them:
+
+```sh
+sh .specify/extensions/spec-hub/scripts/spec-hub hooks "$(git config core.hooksPath)"
+```
+
+With husky 9 this writes to `.husky/`, not the generated `.husky/_`.
+
 If you keep `backup/*` branches (for example before a rebase), each one shows up as another branch carrying its feature. Stop reporting them with:
 
 ```sh
@@ -29,13 +37,18 @@ sh .specify/extensions/spec-hub/scripts/spec-hub private add backup/
 Agents read the same board over MCP. The agent connects to `https://<hub>/mcp/<project>` with the same
 personal token used for `connect`.
 
-Claude Code:
+Claude Code, once per repository:
 
 ```sh
-claude mcp add --transport http spec-hub https://<hub>/mcp/<project> --header "Authorization: Bearer <token>"
+sh .specify/extensions/spec-hub/scripts/spec-hub mcp
 ```
 
-To share it with the team, commit `.mcp.json` (no token; each person sets `SPEC_HUB_TOKEN` in their shell profile):
+It writes the `spec-hub` server into `.mcp.json` (or prints the entry to paste when the file
+already exists). Commit it: every checkout, worktree and teammate gets the server. The file holds
+no token; its `headersHelper` runs `spec-hub mcp-headers`, which reads the token you gave `connect`.
+
+Without the extension, commit this `.mcp.json` instead (each person sets `SPEC_HUB_TOKEN` in their
+shell profile):
 
 ```json
 {

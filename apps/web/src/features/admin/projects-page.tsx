@@ -7,8 +7,9 @@ import { PageHeader } from '@/components/page-header'
 import { Panel, PanelBody } from '@/components/panel'
 import { initials } from '@/components/person-chip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getJson } from '@/lib/api'
+import { meQuery } from '@/lib/query'
 import { CreateProjectDialog } from './create-project-dialog'
-import { getJson } from './http'
 import { WaitingPeople } from './waiting-people'
 
 type ProjectRow = {
@@ -28,6 +29,8 @@ export function ProjectsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { data, isPending, error } = useQuery(projectsQuery)
+  // a hub admin is not a member of every project, and only members can open a board
+  const memberOf = new Set(useQuery(meQuery).data?.projects.map((p) => p.slug))
 
   const onCreated = async (slug: string) => {
     await queryClient.invalidateQueries({ queryKey: ['admin', 'projects'] })
@@ -76,9 +79,16 @@ export function ProjectsPage() {
               </span>
               <div className="min-w-0 flex-1 leading-tight">
                 <h2 className="truncate text-sm font-medium">
-                  <Link to="/p/$slug" params={{ slug: p.slug }} className="hover:underline">
-                    {p.name}
-                  </Link>
+                  {memberOf.has(p.slug) ? (
+                    <Link to="/p/$slug" params={{ slug: p.slug }} className="hover:underline">
+                      {p.name}
+                    </Link>
+                  ) : (
+                    <>
+                      {p.name}{' '}
+                      <span className="text-xs font-normal text-muted-foreground">(not a member)</span>
+                    </>
+                  )}
                 </h2>
                 <p className="truncate font-mono text-xs text-muted-foreground">{p.slug}</p>
               </div>

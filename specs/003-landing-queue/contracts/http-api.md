@@ -9,7 +9,7 @@ Runs `advance`, then returns:
 
 ```ts
 {
-  holder: { id, login, startedAt, minutes } | null,
+  holder: { id, login, startedAt, minutes, mine: boolean } | null,
   waiting: Array<{ id, login, askedAt, position, etaMinutes, mine: boolean }>,
   history: Array<{ id, login, startedAt, endedAt, outcome, endedBy: string | null }>, // last 20
   minutesPerTurn: number,

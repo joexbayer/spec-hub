@@ -21,6 +21,19 @@ test('create-project form rejects an invalid slug without calling fetch', async 
   await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
 })
 
+test('create-project form rejects a branch name the hub would refuse, in the field', async () => {
+  const fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+  render(<CreateProjectDialog onCreated={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: /create project/i }))
+  fireEvent.change(await screen.findByLabelText('Slug'), { target: { value: 'demo' } })
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Demo' } })
+  fireEvent.change(screen.getByLabelText('Default branch'), { target: { value: 'release 1' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+  expect(await screen.findByText('Not a valid branch name')).toBeTruthy()
+  await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
+})
+
 test('security event details render as plain key: value text', () => {
   expect(detailText({ githubLogin: 'ana', role: 'admin' })).toBe('githubLogin: ana, role: admin')
 })
@@ -87,4 +100,39 @@ test('the waiting page shows the login to give an admin and signs out', () => {
   expect(screen.getByText('@newdev')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
   expect(onSignOut).toHaveBeenCalledOnce()
+})
+
+test('removing a member refreshes me, so a removed or demoted admin loses admin views', async () => {
+  const res = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 })
+      if (url.endsWith('/members')) {
+        return res(200, [
+          {
+            githubId: '1',
+            githubLogin: 'me',
+            userId: 'u1',
+            role: 'admin',
+            name: null,
+            image: null,
+            pending: false,
+          },
+        ])
+      }
+      return res(200, [])
+    }),
+  )
+  const client = new QueryClient()
+  client.setQueryData(['me'], { projects: [] })
+  render(
+    <QueryClientProvider client={client}>
+      <MembersTab slug="demo" />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove me' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
+  await waitFor(() => expect(client.getQueryState(['me'])?.isInvalidated).toBe(true))
 })

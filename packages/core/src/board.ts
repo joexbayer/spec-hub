@@ -126,5 +126,11 @@ export function buildBoard(input: BoardInput): Board {
     .filter((l) => !l.baseline && now - l.firstSeenAt <= WINDOW_MS)
     .sort((a, b) => b.firstSeenAt - a.firstSeenAt || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0))
 
-  return { inFlight, stale, recentlyLanded, landedDirs: [...landedDirs].sort(), members }
+  return {
+    inFlight,
+    stale,
+    recentlyLanded,
+    landedDirs: [...landedDirs].sort(),
+    members: members.map(({ emails: _, ...m }) => m),
+  }
 }

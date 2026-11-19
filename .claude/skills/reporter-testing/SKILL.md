@@ -67,3 +67,12 @@ which is most of a report's time on a repo with many branches. Real-data referen
 
 ## Known, accepted limits
 - A background report racing `disconnect` can leave stray files in `.git/spec-hub`.
+
+## MCP headers (`mcp`, `mcp-headers`)
+- `.mcp.json`'s `headersHelper` is run by Claude Code through a shell, **from the directory that
+  holds `.mcp.json`**, fresh on each connect/reconnect, 10 s timeout; stdout must be a JSON object
+  of string headers. So the committed command can be the relative `sh .specify/.../spec-hub
+  mcp-headers`, and the token never needs an env var (docs: code.claude.com/docs/en/mcp).
+- The e2e test runs the helper the same way (`sh -c <headersHelper>` in the repo dir) and calls the
+  in-process hub with the real MCP client; the plain `fetch` works there because the transport is
+  async (no `spawnSync` deadlock).

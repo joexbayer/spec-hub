@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CopyBlock } from '@/components/copy-block'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+const MCP_COMMAND = 'sh .specify/extensions/spec-hub/scripts/spec-hub mcp'
 const TAB_KEY = 'spec-hub.agent-client'
 const CLIENTS = ['claude-code', 'vscode', 'cursor', 'other'] as const
 type Client = (typeof CLIENTS)[number]
@@ -73,17 +74,19 @@ export function AgentSetup({ mcpUrl, tokenKey }: { mcpUrl: string; tokenKey: str
           <TabsTrigger value="other">Other</TabsTrigger>
         </TabsList>
         <TabsContent value="claude-code" className="space-y-3">
-          <CopyBlock label="Add the server (just you)" value={claudeCommand} />
+          <CopyBlock label="Add the server for the whole team: writes .mcp.json" value={MCP_COMMAND} />
+          <p className="text-sm text-muted-foreground">
+            Commit .mcp.json once and every checkout, worktree and teammate gets the server. It holds no
+            token: the agent reads the one you gave connect.
+          </p>
+          <CopyBlock label="Without the Spec Hub extension: .mcp.json" value={claudeProjectFile} />
+          <p className="text-sm text-muted-foreground">
+            Each person sets SPEC_HUB_TOKEN in their shell profile.
+          </p>
+          <CopyBlock label="Or just this checkout" value={claudeCommand} />
           <p className="text-sm text-muted-foreground">
             Tip: a leading space keeps the command out of your shell history in bash with ignorespace or zsh
             with HIST_IGNORE_SPACE.
-          </p>
-          <CopyBlock
-            label="Or share it with the team: .mcp.json in the project root"
-            value={claudeProjectFile}
-          />
-          <p className="text-sm text-muted-foreground">
-            The file holds no token. Each person sets SPEC_HUB_TOKEN in their shell profile.
           </p>
           <CopyBlock label="Skip the permission prompts: .claude/settings.json" value={claudeAllow} />
         </TabsContent>

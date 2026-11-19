@@ -9,8 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { json } from '@/lib/api'
-import { errorMessage, send } from './http'
+import { errorMessage, json, send } from '@/lib/api'
 import { type Person, peopleQuery } from './people'
 
 // Hub admins: people who signed in but are in no project yet (FR-027), each assignable to any project.

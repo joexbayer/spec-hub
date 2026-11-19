@@ -94,7 +94,12 @@ describe('buildBoard', () => {
     expect(b.inFlight[1]?.owner).toMatchObject({ kind: 'member', userId: 'u2' })
     expect(b.inFlight[1]?.phase).toEqual({ kind: 'clarify', open: 2 })
     expect(b.inFlight[1]?.openClarifications).toBe(2)
-    expect(b.members).toBe(members)
+    // owners resolve by email, but the board never carries one
+    expect(b.members).toEqual([
+      { userId: 'u1', githubLogin: 'ann', name: 'Ann', image: null },
+      { userId: 'u2', githubLogin: 'bob', name: 'Bob', image: null },
+    ])
+    expect(JSON.stringify(b)).not.toContain('@work.com')
   })
 
   it('same dir in two clones -> one entry, newest shown, branches newest first', () => {

@@ -1,4 +1,4 @@
-import { type Board, buildDependencyGraph, PHASE_ORDER } from '@spec-hub/core'
+import { type Board, buildDependencyGraph, PHASE_NAME, PHASE_ORDER } from '@spec-hub/core'
 import { AlertTriangle, CloudOff, HelpCircle, Layers, ListChecks, Lock } from 'lucide-react'
 import { Bar, BarChart, XAxis, YAxis } from 'recharts'
 import { isNotPushed } from '@/components/feature-card'
@@ -69,15 +69,13 @@ export function BoardStats({ board }: { board: Board }) {
   )
 }
 
-const KINDS = PHASE_ORDER
-
 const config = Object.fromEntries(
-  KINDS.map((k) => [k, { label: `${k[0]?.toUpperCase()}${k.slice(1)}`, color: `var(--phase-${k})` }]),
+  PHASE_ORDER.map((k) => [k, { label: PHASE_NAME[k], color: `var(--phase-${k})` }]),
 ) as ChartConfig
 
 function PhaseBar({ board }: { board: Board }) {
   const counts = Object.fromEntries(
-    KINDS.map((k) => [k, board.inFlight.filter((e) => e.phase.kind === k).length]),
+    PHASE_ORDER.map((k) => [k, board.inFlight.filter((e) => e.phase.kind === k).length]),
   )
   if (board.inFlight.length === 0) return null
   return (
@@ -88,14 +86,14 @@ function PhaseBar({ board }: { board: Board }) {
           <BarChart data={[counts]} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
             <XAxis type="number" hide domain={[0, board.inFlight.length]} />
             <YAxis type="category" hide />
-            {KINDS.map((k) => (
+            {PHASE_ORDER.map((k) => (
               <Bar key={k} dataKey={k} stackId="phase" fill={`var(--color-${k})`} isAnimationActive={false} />
             ))}
           </BarChart>
         </ChartContainer>
       </div>
       <ul className="flex flex-wrap gap-x-3 gap-y-1">
-        {KINDS.map((k) => (
+        {PHASE_ORDER.map((k) => (
           <li key={k} className="flex items-center gap-1.5">
             <span aria-hidden className={`size-2 rounded-full ${PHASE_DOT[k]}`} />
             {config[k]?.label}

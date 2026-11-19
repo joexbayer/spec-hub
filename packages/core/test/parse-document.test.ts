@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { parseDocument } from '../src/parse-document.ts'
+import { parseDocument, specLink } from '../src/parse-document.ts'
 
 const fence = '```'
 
@@ -195,5 +195,19 @@ describe('bold task ids', () => {
     const f = parseDocument('- [X] **T044 bold one**\n- [ ] **T045** bold id only\n- [x] T046 plain\n')
     expect(f.tasksTotal).toBe(3)
     expect(f.tasksDone).toBe(2)
+  })
+})
+
+describe('specLink', () => {
+  it('resolves relative links in a feature document', () => {
+    expect(specLink('../099-recon/spec.md')).toEqual({ dir: '099-recon', file: 'spec.md' })
+    expect(specLink('../bl%C3%A5-x/plan.md#a')).toEqual({ dir: 'blå-x', file: 'plan.md' })
+    expect(specLink('plan.md')).toEqual({ dir: null, file: 'plan.md' })
+    expect(specLink('./contracts/api.md')).toEqual({ dir: null, file: 'contracts/api.md' })
+  })
+
+  it('leaves links with a scheme and links outside specs/ alone', () => {
+    expect(specLink('https://github.com/o/r/blob/main/specs/099-x/spec.md')).toBeNull()
+    expect(specLink('../../docs/x.md')).toBeNull()
   })
 })

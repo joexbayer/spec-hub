@@ -244,7 +244,7 @@ export async function unlock(
 }
 
 export type QueueView = {
-  holder: { id: number; login: string; startedAt: number; minutes: number } | null
+  holder: { id: number; login: string; startedAt: number; minutes: number; mine: boolean } | null
   waiting: Array<{
     id: number
     login: string
@@ -292,6 +292,7 @@ export async function loadQueueView(
         login: h.login,
         startedAt: (h.startedAt ?? now).getTime(),
         minutes: Math.floor((now.getTime() - (h.startedAt ?? now).getTime()) / 60_000),
+        mine: h.userId === userId,
       }
     : null
   const waiting = live

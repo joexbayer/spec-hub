@@ -126,7 +126,7 @@ const mcp = createMcpHandler(({ authInfo }) => {
     'landing',
     {
       description:
-        "Who holds this project's landing lock and who is waiting, with estimates. Read-only; use land_lock to ask for the lock.",
+        "Who holds this project's landing lock and who is waiting, with estimates. Never joins the queue (use land_lock for that), but if the lock was handed to you, this call picks it up.",
       annotations: { readOnlyHint: true },
     },
     // Any call is a check-in for a caller with a live place; this one never joins.

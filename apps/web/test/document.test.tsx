@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { Document } from '@/components/document'
+import { Document, hubHref } from '@/components/document'
 
 vi.mock('mermaid', () => ({
   default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: '<svg></svg>' })) },
@@ -58,4 +58,35 @@ it('a document the parser cannot handle shows as plain text instead of breaking 
   quiet.mockRestore()
   expect(container.textContent).toContain('could not be rendered')
   expect(container.querySelector('pre')?.textContent).toBe(hostile)
+})
+
+describe('Document links on the hub', () => {
+  const hrefs = (markdown: string) => {
+    const { container } = render(<Document markdown={markdown} slug="acme" />)
+    return [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))
+  }
+
+  it('turns spec links into hub pages and tabs', () => {
+    expect(
+      hrefs('[dep](../099-recon/spec.md) [p](../099-recon/plan.md) [own](tasks.md) [s](#goals)'),
+    ).toEqual(['/p/acme/f/099-recon', '/p/acme/f/099-recon?tab=plan', '?tab=tasks', '#goals'])
+  })
+
+  it('keeps external links and shows links the hub has no page for as text', () => {
+    const { container, getByText } = render(
+      <Document markdown={'[gh](https://github.com/o/r) [doc](../../docs/x.md)'} slug="acme" />,
+    )
+    expect([...container.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      'https://github.com/o/r',
+    ])
+    expect(getByText('doc').tagName).toBe('SPAN')
+  })
+})
+
+describe('hubHref', () => {
+  it('keeps the shown branch when switching tabs and drops blanked links', () => {
+    expect(hubHref('plan.md', 'acme', '?branch=feat-b&tab=spec')).toBe('?branch=feat-b&tab=plan')
+    expect(hubHref('../099-x/spec.md', 'acme', '?branch=feat-b')).toBe('/p/acme/f/099-x')
+    expect(hubHref('', 'acme')).toBeUndefined()
+  })
 })

@@ -36,7 +36,7 @@ import { shortAgo } from '@/lib/time'
 import { DocumentTabs, type FeatureTab } from './document-tabs'
 import { DependenciesPanel, VersionsPanel } from './graph-panels'
 
-const UNKNOWN_OWNER: Owner = { kind: 'unknown' } as Owner
+const UNKNOWN_OWNER: Owner = { kind: 'unknown' }
 
 function ProgressRing({ done, total }: { done: number; total: number }) {
   const r = 14
@@ -347,6 +347,7 @@ export function FeaturePage({
         </Panel>
 
         <DocumentTabs
+          slug={slug}
           shown={shown}
           tab={tab}
           onTabChange={onTabChange}

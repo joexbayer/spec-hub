@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { type ProjectFields, projectFields } from '@spec-hub/core'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
@@ -15,8 +16,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { send } from './http'
-import { type ProjectForm, projectFormSchema } from './schema'
+import { send } from '@/lib/api'
 
 export function CreateProjectDialog({ onCreated }: { onCreated: (slug: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -26,8 +26,8 @@ export function CreateProjectDialog({ onCreated }: { onCreated: (slug: string) =
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm<ProjectForm>({
-    resolver: zodResolver(projectFormSchema),
+  } = useForm<ProjectFields>({
+    resolver: zodResolver(projectFields),
     defaultValues: { slug: '', name: '', defaultBranch: 'main', numbering: 'sequential' },
   })
 

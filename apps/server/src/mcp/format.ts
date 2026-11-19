@@ -178,7 +178,11 @@ export function formatLanding(view: QueueView, defaultBranch: string, now = Date
   const branch = oneLine(defaultBranch)
   const { holder, waiting } = view
   if (!holder && waiting.length === 0) return `The landing lock for ${branch} is free and nobody is waiting.`
-  const who = holder ? `@${oneLine(holder.login)} holds it (${holder.minutes} min)` : 'free'
+  const who = holder
+    ? holder.mine
+      ? `you hold it (${holder.minutes} min): land, then call land_unlock`
+      : `@${oneLine(holder.login)} holds it (${holder.minutes} min)`
+    : 'free'
   const lines = [
     `Landing lock for ${branch}: ${who}; ${waiting.length} waiting; about ${view.minutesPerTurn} min per turn.`,
   ]

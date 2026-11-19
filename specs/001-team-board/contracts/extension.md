@@ -5,7 +5,7 @@
 ```text
 extension.yml          # id: spec-hub; provides.scripts: [spec-hub]; provides.config: [spec-hub-config.yml]
 config-template.yml    # scaffolded once to .specify/extensions/spec-hub/spec-hub-config.yml
-scripts/spec-hub       # POSIX sh, needs only git and curl
+scripts/spec-hub       # POSIX sh, needs only git (2.31 or later) and curl
 README.md
 ```
 
@@ -36,7 +36,9 @@ remote: origin            # optional, default origin
 | `spec-hub disconnect` | Removes the hook files it wrote, the `spec-hub.*` git config keys and the `spec-hub/` state directory (with the hooks' copy of the reporter). It leaves the credentials file, which other clones use. The repository is as it was (FR-008). |
 | `spec-hub status` | Prints the hub, project, hooks mode and whether hooks are active, the private prefixes, the last successful report and the last error (FR-007). |
 | `spec-hub private add <prefix>` / `private remove <prefix>` | Manages `spec-hub.private`. |
-| `spec-hub hooks <dir>` | For team-managed hooks: in `<dir>` (for example `.githooks`), creates or appends the four hook files with the call line. Meant to be committed once by the team. |
+| `spec-hub hooks <dir>` | For team-managed hooks: in `<dir>` (for example `.githooks`), creates the four hook files with the call line, or inserts it right after the shebang of an existing one (so a hook that ends in `exec` or `exit` still runs it). Husky 9's `core.hooksPath`, `.husky/_` (generated and ignored, its stubs run `.husky/<hook>`), resolves to `.husky`. Meant to be committed once by the team. |
+| `spec-hub mcp` | Team setup for agents: writes the `spec-hub` server into `.mcp.json` (`url` `<hub_url>/mcp/<project>`, `headersHelper` `sh .specify/extensions/spec-hub/scripts/spec-hub mcp-headers`), or prints the entry to paste when the file already exists. Meant to be committed once by the team. |
+| `spec-hub mcp-headers` | Called by Claude Code as the `headersHelper`. Prints `{"Authorization":"Bearer <token>"}` from the credentials file, only when `CLAUDE_CODE_MCP_SERVER_URL` equals `<hub_url>/mcp/<project>`; otherwise, and without a token, it prints nothing to stdout and exits 1 with the reason on stderr. The check stops a changed `url` from receiving the token; `headersHelper` itself is a committed command, reviewed like hooks. |
 | `spec-hub report` | Runs one report in the foreground and prints the result. For debugging and for worktrees that have no hooks. |
 | `spec-hub hook <event>` | Called by the hook line only. If the clone isn't connected, it does nothing. Otherwise it prints the pending notice (at most once a day), starts `report` in the background with all output discarded, and exits 0. |
 
@@ -69,8 +71,8 @@ the event name changes per file. It never fails the hook, so it is safe in hooks
   [ -f .specify/extensions/spec-hub/scripts/spec-hub ] && sh .specify/extensions/spec-hub/scripts/spec-hub hook post-commit || true
   ```
 
-- `connect` checks that the line is present in `<hooksPath>/<event>` and reports any hooks that are
-  missing.
+- `connect` checks that the line is present in `<dir>/<event>` (the hooks directory as `hooks`
+  resolves it, so `.husky` for husky 9) and reports any hooks that are missing.
 - Trade-off: this line runs the script from the checked-out branch, like every committed hook a
   team keeps in the repository. A branch that changes the script runs its own version on checkout,
   so the team reviews changes to it as it reviews hook changes. `spec-hub hooks` prints this note.

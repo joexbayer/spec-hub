@@ -21,8 +21,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { json } from '@/lib/api'
-import { errorMessage, getJson, send } from './http'
+import { errorMessage, getJson, json, send } from '@/lib/api'
+import { meQuery } from '@/lib/query'
 import { assignable, peopleQuery } from './people'
 
 export type Member = {
@@ -53,6 +53,8 @@ export function MembersTab({ slug }: { slug: string }) {
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: membersKey(slug) })
     await queryClient.invalidateQueries({ queryKey: peopleQuery.queryKey })
+    // demoting or removing yourself changes what the app lets you see
+    await queryClient.invalidateQueries({ queryKey: meQuery.queryKey })
   }
   const onError = (err: unknown) => toast.error(errorMessage(err))
   const listId = useId()

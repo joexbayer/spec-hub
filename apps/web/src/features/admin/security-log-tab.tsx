@@ -6,7 +6,7 @@ import { Panel, PanelBody, PanelHeader } from '@/components/panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getJson } from './http'
+import { getJson } from '@/lib/api'
 
 type SecurityEvent = {
   id: number

@@ -1,5 +1,6 @@
-import { Component, type ReactNode, useEffect, useId, useState } from 'react'
-import Markdown, { type Components } from 'react-markdown'
+import { specLink } from '@spec-hub/core'
+import { Component, type ComponentProps, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
+import Markdown, { type Components, type ExtraProps } from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
@@ -9,6 +10,31 @@ function urlTransform(url: string): string {
   if (/^https?:/i.test(url)) return url
   if (/^[a-z][a-z0-9+.-]*:/i.test(url.trim())) return ''
   return url
+}
+
+const DOC_FILES: Record<string, 'spec' | 'plan' | 'tasks'> = {
+  'spec.md': 'spec',
+  'plan.md': 'plan',
+  'tasks.md': 'tasks',
+}
+
+// A relative link in a spec is written for the repository (../099-x/spec.md). On the hub it
+// becomes that feature's page, or a tab of this one (keeping `search`, so the branch shown stays);
+// undefined when the hub has no page for it, also for a link urlTransform blanked.
+export function hubHref(href: string, slug: string, search = ''): string | undefined {
+  if (href === '') return undefined
+  if (href.startsWith('#')) return href
+  const target = specLink(href)
+  if (!target) return /^[a-z][a-z0-9+.-]*:/i.test(href) ? href : undefined
+  const tab = DOC_FILES[target.file] ?? (target.file === '' ? 'spec' : undefined)
+  if (target.dir === null) {
+    if (!tab) return undefined
+    const q = new URLSearchParams(search)
+    q.set('tab', tab)
+    return `?${q}`
+  }
+  const page = `/p/${encodeURIComponent(slug)}/f/${encodeURIComponent(target.dir)}`
+  return tab && tab !== 'spec' ? `${page}?tab=${tab}` : page
 }
 
 function MermaidDiagram({ code }: { code: string }) {
@@ -56,6 +82,19 @@ function CodeBlock({ children }: { children: string }) {
   )
 }
 
+function Anchor({ node: _n, className, href, ...p }: ComponentProps<'a'> & ExtraProps) {
+  const external = !!href && /^https?:/i.test(href)
+  return (
+    <a
+      {...p}
+      href={href}
+      rel="noopener noreferrer nofollow"
+      target={external ? '_blank' : undefined}
+      className={cn('text-primary underline underline-offset-2', className)}
+    />
+  )
+}
+
 const components: Components = {
   h1: ({ node: _n, className, ...p }) => (
     <h1 className={cn('mt-5 mb-2 text-xl font-semibold', className)} {...p} />
@@ -99,18 +138,7 @@ const components: Components = {
   td: ({ node: _n, className, ...p }) => (
     <td className={cn('border-b px-2 py-1 align-top', className)} {...p} />
   ),
-  a: ({ node: _n, className, href, ...p }) => {
-    const external = !!href && /^https?:/i.test(href)
-    return (
-      <a
-        {...p}
-        href={href}
-        rel="noopener noreferrer nofollow"
-        target={external ? '_blank' : undefined}
-        className={cn('text-primary underline underline-offset-2', className)}
-      />
-    )
-  },
+  a: Anchor,
   img: ({ alt }) => <span className="text-xs italic text-muted-foreground">[image: {alt}]</span>,
   pre: ({ children }) => <>{children}</>,
   code: ({ node: _n, className, children, ...p }) => {
@@ -146,7 +174,23 @@ class PlainOnError extends Component<{ text: string; children: ReactNode }, { fa
   }
 }
 
-export function Document({ markdown }: { markdown: string }) {
+/** `slug` maps relative spec links to hub pages; without it they render as written. */
+export function Document({ markdown, slug }: { markdown: string; slug?: string }) {
+  const rendered = useMemo<Components>(() => {
+    if (slug === undefined) return components
+    return {
+      ...components,
+      a: ({ href, children, ...p }) => {
+        const to = href === undefined ? undefined : hubHref(href, slug, window.location.search)
+        if (to === undefined) return <span>{children}</span>
+        return (
+          <Anchor href={to} {...p}>
+            {children}
+          </Anchor>
+        )
+      },
+    }
+  }, [slug])
   return (
     <div className="max-w-none break-words">
       <PlainOnError key={markdown} text={markdown}>
@@ -154,7 +198,7 @@ export function Document({ markdown }: { markdown: string }) {
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeSanitize]}
           urlTransform={urlTransform}
-          components={components}
+          components={rendered}
         >
           {markdown}
         </Markdown>

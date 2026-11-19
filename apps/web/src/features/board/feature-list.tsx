@@ -1,24 +1,16 @@
-import { type BoardEntry, PHASE_ORDER, type PhaseKind } from '@spec-hub/core'
+import type { BoardEntry, PhaseKind } from '@spec-hub/core'
 import { Link } from '@tanstack/react-router'
 import { type ColumnDef, flexRender, tableFeatures, useTable } from '@tanstack/react-table'
-import { ChevronRight, GitBranch, ListFilter, Search, SearchX } from 'lucide-react'
+import { ChevronRight, GitBranch, Search, SearchX } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { FeatureStateBadges, progressOf } from '@/components/feature-card'
 import { Panel, PanelBody, PanelHeader } from '@/components/panel'
 import { OwnerAvatar, ownerName } from '@/components/person-chip'
-import { PHASE_DOT, PhaseBadge } from '@/components/phase-badge'
+import { PhaseBadge } from '@/components/phase-badge'
+import { PhaseFilter } from '@/components/phase-filter'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -27,15 +19,6 @@ import { shortAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 const features = tableFeatures({})
-
-const PHASE_LABEL: Record<PhaseKind, string> = {
-  specify: 'Specify',
-  clarify: 'Clarify',
-  plan: 'Plan',
-  tasks: 'Tasks',
-  implement: 'Implement',
-  implemented: 'Implemented',
-}
 
 // Fixed widths for the narrow columns; the title takes the width left over and truncates.
 const WIDTH: Record<string, string> = {
@@ -251,41 +234,7 @@ export function FeatureList({
                 ))}
               </SelectContent>
             </Select>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 bg-card">
-                  <ListFilter />
-                  Phase
-                  {phases.length > 0 ? (
-                    <span className="rounded bg-muted px-1 text-xs tabular-nums">{phases.length}</span>
-                  ) : null}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  Show phases
-                </DropdownMenuLabel>
-                {PHASE_ORDER.map((p) => (
-                  <DropdownMenuCheckboxItem
-                    key={p}
-                    checked={phases.includes(p)}
-                    onSelect={(e) => e.preventDefault()}
-                    onCheckedChange={(on) =>
-                      setPhases((cur) => (on ? [...cur, p] : cur.filter((x) => x !== p)))
-                    }
-                  >
-                    <span aria-hidden className={`size-2 rounded-full ${PHASE_DOT[p]}`} />
-                    {PHASE_LABEL[p]}
-                  </DropdownMenuCheckboxItem>
-                ))}
-                {phases.length > 0 ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={() => setPhases([])}>Clear</DropdownMenuItem>
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <PhaseFilter selected={phases} onChange={setPhases} />
           </>
         }
       />

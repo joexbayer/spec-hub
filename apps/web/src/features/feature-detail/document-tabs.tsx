@@ -9,7 +9,7 @@ export type FeatureTab = (typeof FEATURE_TABS)[number]
 
 const DOC_TABS = ['spec', 'plan', 'tasks'] as const
 
-function DocBody({ name, doc }: { name: string; doc: ShownDoc | null }) {
+function DocBody({ name, doc, slug }: { name: string; doc: ShownDoc | null; slug: string }) {
   if (!doc) return <Note>This branch has no {name}.md yet.</Note>
   if (doc.tooLarge) {
     return <Note>Too large to display ({doc.size} bytes). Read it in the repository.</Note>
@@ -17,7 +17,7 @@ function DocBody({ name, doc }: { name: string; doc: ShownDoc | null }) {
   if (doc.unreadable || doc.content === null) {
     return <Note>Not valid UTF-8; read it in the repository.</Note>
   }
-  return <Document markdown={doc.content} />
+  return <Document markdown={doc.content} slug={slug} />
 }
 
 function Note({ children }: { children: ReactNode }) {
@@ -38,12 +38,14 @@ const ICONS: Record<FeatureTab, ReactNode> = {
 }
 
 export function DocumentTabs({
+  slug,
   shown,
   tab,
   onTabChange,
   versions,
   dependencies,
 }: {
+  slug: string
   shown: ShownVersion | null
   tab: FeatureTab
   onTabChange: (tab: FeatureTab) => void
@@ -65,7 +67,7 @@ export function DocumentTabs({
       {DOC_TABS.map((name) => (
         <TabsContent key={name} value={name}>
           <div className="rounded-xl border bg-card px-5 py-4 shadow-xs md:px-8 md:py-6">
-            <DocBody name={name} doc={shown?.docs[name] ?? null} />
+            <DocBody name={name} doc={shown?.docs[name] ?? null} slug={slug} />
           </div>
         </TabsContent>
       ))}

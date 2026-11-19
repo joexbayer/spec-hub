@@ -267,8 +267,8 @@ function collectDependencies(line: PhrasingContent[], into: string[]): void {
   }
 }
 
-/** The feature directory a link points to, or null for same-feature and non-feature links. */
-function featureDir(href: string): string | null {
+/** Where a link lands under specs/: its feature dir (SELF_DIR for this feature) and the file in it. */
+function specTarget(href: string): { dir: string; file: string } | null {
   let url: URL
   try {
     url = HAS_SCHEME.test(href) ? new URL(href) : new URL(href, SELF_BASE)
@@ -277,7 +277,7 @@ function featureDir(href: string): string | null {
   }
   const at = url.pathname.lastIndexOf('/specs/')
   if (at < 0) return null
-  const segment = url.pathname.slice(at + '/specs/'.length).split('/')[0]
+  const [segment, ...rest] = url.pathname.slice(at + '/specs/'.length).split('/')
   if (!segment) return null
   let dir: string
   try {
@@ -285,6 +285,22 @@ function featureDir(href: string): string | null {
   } catch {
     return null
   }
-  if (dir === '.' || dir === '..' || dir === SELF_DIR || !FEATURE_DIR.test(dir)) return null
-  return dir
+  if (dir === '.' || dir === '..' || !FEATURE_DIR.test(dir)) return null
+  return { dir, file: rest.join('/') }
+}
+
+/** The feature directory a link points to, or null for same-feature and non-feature links. */
+function featureDir(href: string): string | null {
+  const t = specTarget(href)
+  return t && t.dir !== SELF_DIR ? t.dir : null
+}
+
+/**
+ * Where a relative link in a feature document lands: another feature (`dir`) or this one
+ * (`dir: null`), and the file. Null for links with a scheme and for links outside specs/.
+ */
+export function specLink(href: string): { dir: string | null; file: string } | null {
+  if (HAS_SCHEME.test(href)) return null
+  const t = specTarget(href)
+  return t ? { dir: t.dir === SELF_DIR ? null : t.dir, file: t.file } : null
 }

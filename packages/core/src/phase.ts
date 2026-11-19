@@ -9,6 +9,15 @@ export const PHASE_ORDER: readonly PhaseKind[] = [
   'implemented',
 ]
 
+export const PHASE_NAME: Record<PhaseKind, string> = {
+  specify: 'Specify',
+  clarify: 'Clarify',
+  plan: 'Plan',
+  tasks: 'Tasks',
+  implement: 'Implement',
+  implemented: 'Implemented',
+}
+
 // FR-013: first match wins.
 export function inferPhase(v: Pick<FeatureVersion, 'spec' | 'plan' | 'tasks'>): Phase {
   if (v.spec && v.spec.openClarifications > 0) return { kind: 'clarify', open: v.spec.openClarifications }
@@ -24,11 +33,11 @@ export function inferPhase(v: Pick<FeatureVersion, 'spec' | 'plan' | 'tasks'>): 
 export function phaseLabel(p: Phase): string {
   switch (p.kind) {
     case 'specify':
-      return 'Specify'
+      return PHASE_NAME.specify
     case 'clarify':
       return `Clarify (${p.open})`
     case 'plan':
-      return 'Plan'
+      return PHASE_NAME.plan
     case 'tasks':
       return `Tasks (0/${p.total})`
     case 'implement':
