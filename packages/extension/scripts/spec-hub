@@ -148,11 +148,18 @@ clone_hook_line() { printf '[ -x %s ] && sh %s hook %s || true' "$1" "$1" "$2"; 
 # calls_hub FILE EVENT: true when FILE runs the spec-hub hook for EVENT (team-managed).
 calls_hub() { [ -f "$1" ] && grep -qF "spec-hub hook $2" "$1"; }
 
+# team_dir DIR: where the team's hooks live for core.hooksPath DIR. Husky 9 points it at its
+# generated .husky/_ (ignored, rewritten on install), whose stubs run .husky/<hook>: use the parent.
+team_dir() {
+  case "$1" in */_) [ -f "$1/h" ] && { printf '%s\n' "${1%/_}"; return; } ;; esac
+  printf '%s\n' "$1"
+}
+
 # hooks_location: sets HOOKS_PATH (core.hooksPath, empty when clone-managed) and HOOKS_DIR.
 hooks_location() {
   HOOKS_PATH=$(git config --type=path core.hooksPath 2>/dev/null)
   if [ -n "$HOOKS_PATH" ]; then
-    HOOKS_DIR=$HOOKS_PATH
+    HOOKS_DIR=$(team_dir "$HOOKS_PATH")
   else
     HOOKS_DIR="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
   fi
@@ -530,16 +537,16 @@ take_lock() {
 }
 
 # report_locked: the hooks' background report. One runs at a time; a report asked for while
-# one runs leaves $S/pending, and the running one reports once more when it is done.
+# one runs leaves $S/pending, and the running one reports once more when it is done. Writing it
+# before trying the lock means a holder that is just releasing still sees it.
 report_locked() {
-  while take_lock; do
+  : > "$S/pending"
+  while [ -f "$S/pending" ] && take_lock; do
     rm -f "$S/pending"
     send_report
     rm -rf "$LOCK"
     LOCK=
-    [ -f "$S/pending" ] || return 0
   done
-  : > "$S/pending"
 }
 
 # ---------------------------------------------------------------- commands
@@ -663,7 +670,7 @@ install_hooks() {
     done
     [ -z "$missing" ] && return 0
     printf 'Hooks are team-managed (%s); missing the spec-hub line:%s\n' "$HOOKS_PATH" "$missing"
-    printf 'Ask your team to run: sh %s hooks %s\n' "$SELF" "$HOOKS_PATH"
+    printf 'Ask your team to run: sh %s hooks %s\n' "$SELF" "$HOOKS_DIR"
     return 0
   fi
   copy="$(state_dir)/spec-hub"
@@ -847,9 +854,6 @@ cmd_status() {
   exit 0
 }
 
-# ere_escape S: S as an extended regex matching S literally.
-ere_escape() { printf '%s' "$1" | sed 's/[].[{}()*+?^$|\\]/\\&/g'; }
-
 cmd_private() {
   enter_repo
   case "${1:-}" in
@@ -869,13 +873,7 @@ cmd_private() {
         printf 'spec-hub: %s is not a private prefix.\n' "$2" >&2
         exit 1
       else
-        git config --local --fixed-value --unset-all spec-hub.private "$2" 2>/dev/null
-        rc=$?
-        if [ "$rc" = 129 ]; then   # git < 2.30: no --fixed-value
-          git config --local --unset-all spec-hub.private "^$(ere_escape "$2")\$"
-          rc=$?
-        fi
-        [ "$rc" = 0 ] || exit 1
+        git config --local --fixed-value --unset-all spec-hub.private "$2" 2>/dev/null || exit 1
         printf 'Branches starting with %s are reported again.\n' "$2"
       fi ;;
     *) usage ;;
@@ -887,7 +885,7 @@ cmd_private() {
 cmd_hooks() {
   [ $# -eq 1 ] && [ -n "$1" ] || usage
   enter_repo
-  dir=$1
+  dir=$(team_dir "$1")
   mkdir -p "$dir" || exit 1
   changed=
   for e in $HOOK_EVENTS; do
@@ -898,7 +896,14 @@ cmd_hooks() {
       printf 'Created %s\n' "$f"
       changed=yes
     elif ! calls_hub "$f" "$e"; then
-      printf '\n# spec-hub\n%s\n' "$(team_hook_line "$e")" >> "$f" || exit 1
+      # first, after the shebang: a hook that ends in exec or exit would never reach a last line
+      awk -v l="$(team_hook_line "$e")" '
+        NR == 1 && /^#!/ { print; print "# spec-hub"; print l; next }
+        NR == 1 { print "# spec-hub"; print l }
+        { print }
+        END { if (NR == 0) { print "# spec-hub"; print l } }' "$f" > "$f.spec-hub" || exit 1
+      cat "$f.spec-hub" > "$f" || exit 1   # in place: keeps the hook's mode and owner
+      rm -f "$f.spec-hub"
       printf 'Updated %s\n' "$f"
       changed=yes
     fi
@@ -925,6 +930,7 @@ cmd_mcp() {
     printf '{\n  "mcpServers": {\n%s\n  }\n}\n' "$(mcp_entry)" > .mcp.json || exit 1
     printf 'Created .mcp.json\n'
     printf 'Commit it so every checkout and teammate gets the server: git add .mcp.json && git commit\n'
+    printf 'Note: the agent runs %s from the checked-out branch to get your token; review changes to it and to .mcp.json like hook changes.\n' "$SELF"
     exit 0
   fi
   if grep -qF "$SELF mcp-headers" .mcp.json; then

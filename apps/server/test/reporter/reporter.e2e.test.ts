@@ -255,6 +255,37 @@ describe('reporter end to end (real hub, real git)', () => {
     )
   })
 
+  it('installs into .husky (not husky 9 generated .husky/_) and runs before a hook that ends in exec', async () => {
+    const { repo, sb, token, cloneId } = await connectedClone()
+    // husky 9: core.hooksPath=.husky/_ holds ignored stubs that run .husky/<hook> through h
+    repo.git('config', 'core.hooksPath', '.husky/_')
+    repo.write('.husky/_/.gitignore', '*\n')
+    repo.write(
+      '.husky/_/h',
+      '#!/bin/sh\ns="$(dirname "$(dirname "$0")")/$(basename "$0")"\n[ -f "$s" ] || exit 0\nsh -e "$s" "$@"\n',
+    )
+    for (const e of ['post-commit', 'post-checkout', 'post-merge', 'post-rewrite']) {
+      repo.write(`.husky/_/${e}`, '#!/bin/sh\n. "$(dirname "$0")/h"\n')
+      sb.run(repo.dir, 'chmod', ['+x', `.husky/_/${e}`])
+    }
+    const marker = join(sb.root, 'team-hook-ran')
+    repo.write('.husky/post-commit', `#!/bin/sh\ntouch '${marker}'\nexec true\n`)
+
+    const hooks = await repo.spechub(['hooks', repo.git('config', 'core.hooksPath').trim()])
+    expect(hooks.status).toBe(0)
+    expect(readFileSync(join(repo.dir, '.husky/post-commit'), 'utf8')).toMatch(
+      /^#!\/bin\/sh\n# spec-hub\n.*spec-hub hook post-commit.*\ntouch /,
+    )
+    expect(readFileSync(join(repo.dir, '.husky/_/post-commit'), 'utf8')).not.toContain('spec-hub')
+    expect((await repo.connect(token.key)).stdout).not.toContain('missing the spec-hub line')
+
+    repo.git('checkout', '-q', '-b', '006-h')
+    repo.write('specs/006-h/spec.md', SPEC)
+    repo.commit(['specs/006-h/spec.md'], 'husky hooks')
+    expect(existsSync(marker)).toBe(true)
+    await waitFor(() => featureRow(cloneId, '006-h', '006-h'), 'feature from husky hooks')
+  })
+
   it('reports only what the branch changed, not what main changed since (FR-012)', async () => {
     const { repo, cloneId } = await connectedClone({ initialFiles: { 'specs/001-a/spec.md': SPEC } })
     repo.git('branch', '002-b')

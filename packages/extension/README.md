@@ -1,6 +1,6 @@
 # Spec Hub
 
-Spec Hub is a Spec Kit extension that silently reports your committed in-flight feature work to your team's Spec Hub. It needs only git and curl, and prints nothing in normal use.
+Spec Hub is a Spec Kit extension that silently reports your committed in-flight feature work to your team's Spec Hub. It needs only git (2.31 or later) and curl, and prints nothing in normal use.
 
 ## Install
 
@@ -17,6 +17,14 @@ sh .specify/extensions/spec-hub/scripts/spec-hub connect
 ```
 
 Clone-managed hooks run a copy of the reporter kept in `.git/spec-hub/`, never the checked-out one. Run `connect` again after upgrading the extension or moving the repository.
+
+If the repository sets `core.hooksPath` (husky, `.githooks`), install the hooks there once and commit them:
+
+```sh
+sh .specify/extensions/spec-hub/scripts/spec-hub hooks "$(git config core.hooksPath)"
+```
+
+With husky 9 this writes to `.husky/`, not the generated `.husky/_`.
 
 If you keep `backup/*` branches (for example before a rebase), each one shows up as another branch carrying its feature. Stop reporting them with:
 
