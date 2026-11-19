@@ -7,9 +7,9 @@ import { PageHeader } from '@/components/page-header'
 import { Panel, PanelBody } from '@/components/panel'
 import { initials } from '@/components/person-chip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getJson } from '@/lib/api'
 import { meQuery } from '@/lib/query'
 import { CreateProjectDialog } from './create-project-dialog'
-import { getJson } from './http'
 import { WaitingPeople } from './waiting-people'
 
 type ProjectRow = {

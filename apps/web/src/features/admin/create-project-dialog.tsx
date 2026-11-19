@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { send } from './http'
+import { send } from '@/lib/api'
 
 export function CreateProjectDialog({ onCreated }: { onCreated: (slug: string) => void }) {
   const [open, setOpen] = useState(false)

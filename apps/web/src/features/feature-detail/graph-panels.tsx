@@ -25,13 +25,8 @@ function Side({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-function useBoardData(slug: string) {
-  const { board } = useBoard(slug)
-  return board
-}
-
 export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureDetail }) {
-  const board = useBoardData(slug)
+  const { board } = useBoard(slug)
   const elements = useMemo(
     () => (board.data ? buildVersionElements(detail, board.data) : null),
     [detail, board.data],
@@ -76,7 +71,7 @@ export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureD
 
 export function DependenciesPanel({ slug, dir }: { slug: string; dir: string }) {
   const navigate = useNavigate()
-  const board = useBoardData(slug)
+  const { board } = useBoard(slug)
   const data = useMemo(() => {
     if (!board.data) return null
     const graph = buildDependencyGraph(board.data)

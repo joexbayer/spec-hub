@@ -1,16 +1,7 @@
-import { buildDependencyGraph, PHASE_ORDER, type PhaseKind } from '@spec-hub/core'
+import { buildDependencyGraph, PHASE_NAME, PHASE_ORDER } from '@spec-hub/core'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useReactFlow } from '@xyflow/react'
-import {
-  AlertTriangle,
-  CheckCircle2,
-  HelpCircle,
-  LayoutDashboard,
-  ListFilter,
-  Lock,
-  Route,
-  SearchX,
-} from 'lucide-react'
+import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
+import { AlertTriangle, CheckCircle2, HelpCircle, LayoutDashboard, Lock, Route, SearchX } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Label, Pie, PieChart } from 'recharts'
 import { EmptyState } from '@/components/empty-state'
@@ -18,21 +9,15 @@ import { PageHeader } from '@/components/page-header'
 import { Panel, PanelBody, PanelHeader } from '@/components/panel'
 import { ownerName } from '@/components/person-chip'
 import { PHASE_DOT, PhaseBadge } from '@/components/phase-badge'
+import { PhaseFilter } from '@/components/phase-filter'
 import { Button } from '@/components/ui/button'
 import { type ChartConfig, ChartContainer } from '@/components/ui/chart'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Label as FieldLabel } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useBoard } from '@/features/board/board-query'
-import { GraphCanvas, GraphProvider } from '@/features/graphs/graph-canvas'
+import { GraphCanvas } from '@/features/graphs/graph-canvas'
 import { InspectorPanel } from '@/features/graphs/inspector-panel'
 import { CARD_H, CARD_W } from '@/features/graphs/layout'
 import { EDGE_SWATCH, GraphLegend, NODE_SWATCH } from '@/features/graphs/legend'
@@ -40,15 +25,6 @@ import type { FeatureNodeData } from '@/features/graphs/nodes'
 import { cn } from '@/lib/utils'
 import { FeatureInspector } from './feature-details'
 import { buildMapElements, DEFAULT_FILTERS, type MapFilters } from './map-elements'
-
-const PHASE_LABEL: Record<PhaseKind, string> = {
-  specify: 'Specify',
-  clarify: 'Clarify',
-  plan: 'Plan',
-  tasks: 'Tasks',
-  implement: 'Implement',
-  implemented: 'Implemented',
-}
 
 export function DependencyMapPage({ slug }: { slug: string }) {
   const { board: query } = useBoard(slug)
@@ -83,9 +59,9 @@ export function DependencyMapPage({ slug }: { slug: string }) {
           </PanelBody>
         </Panel>
       ) : (
-        <GraphProvider>
+        <ReactFlowProvider>
           <MapBody slug={slug} board={board} />
-        </GraphProvider>
+        </ReactFlowProvider>
       )}
     </div>
   )
@@ -110,12 +86,6 @@ function MapBody({ slug, board }: { slug: string; board: LoadedBoard }) {
     const n = nodes.find((x) => x.id === dir)
     if (n) setCenter(n.position.x + CARD_W / 2, n.position.y + CARD_H / 2, { zoom: 1, duration: 300 })
   }
-  const togglePhase = (p: PhaseKind) =>
-    setFilters((f) => ({
-      ...f,
-      phases: f.phases.includes(p) ? f.phases.filter((x) => x !== p) : [...f.phases, p],
-    }))
-
   return (
     <div className="space-y-6">
       <Panel>
@@ -140,35 +110,10 @@ function MapBody({ slug, board }: { slug: string; board: LoadedBoard }) {
                   ))}
                 </SelectContent>
               </Select>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 bg-card">
-                    <ListFilter />
-                    Phase
-                    {filters.phases.length > 0 ? (
-                      <span className="rounded bg-muted px-1 text-xs tabular-nums">
-                        {filters.phases.length}
-                      </span>
-                    ) : null}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                    Show phases
-                  </DropdownMenuLabel>
-                  {PHASE_ORDER.map((p) => (
-                    <DropdownMenuCheckboxItem
-                      key={p}
-                      checked={filters.phases.includes(p)}
-                      onSelect={(e) => e.preventDefault()}
-                      onCheckedChange={() => togglePhase(p)}
-                    >
-                      <span aria-hidden className={`size-2 rounded-full ${PHASE_DOT[p]}`} />
-                      {PHASE_LABEL[p]}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <PhaseFilter
+                selected={filters.phases}
+                onChange={(phases) => setFilters((f) => ({ ...f, phases }))}
+              />
               <FieldLabel className="h-8 gap-2 rounded-md border bg-card px-2.5 text-sm font-normal shadow-xs">
                 <Switch
                   size="sm"
@@ -316,7 +261,7 @@ function MapBody({ slug, board }: { slug: string; board: LoadedBoard }) {
 }
 
 const chartConfig = Object.fromEntries(
-  PHASE_ORDER.map((p) => [p, { label: PHASE_LABEL[p], color: `var(--phase-${p})` }]),
+  PHASE_ORDER.map((p) => [p, { label: PHASE_NAME[p], color: `var(--phase-${p})` }]),
 ) satisfies ChartConfig
 
 function PhaseHealth({ board, blocked }: { board: LoadedBoard; blocked: number }) {
@@ -368,7 +313,7 @@ function PhaseHealth({ board, blocked }: { board: LoadedBoard; blocked: number }
             <li key={d.phase} className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-muted-foreground">
                 <span aria-hidden className="size-2 rounded-full" style={{ background: d.fill }} />
-                {PHASE_LABEL[d.phase]}
+                {PHASE_NAME[d.phase]}
               </span>
               <span className="tabular-nums">{d.count}</span>
             </li>

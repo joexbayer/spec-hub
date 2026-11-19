@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getJson, send } from './http'
+import { connectQuery } from '@/features/connect/connect-query'
+import { getJson, send } from '@/lib/api'
 
 type Settings = ProjectSettings & { slug: string; createdAt: string }
 
@@ -61,7 +62,7 @@ function SettingsPanel({ slug, current }: { slug: string; current: ProjectSettin
     })
   })
 
-  const origin = window.location.origin
+  const { data: connect } = useQuery(connectQuery(slug, false))
   return (
     <div className="grid items-start gap-6 lg:grid-cols-2">
       <Panel>
@@ -112,11 +113,12 @@ function SettingsPanel({ slug, current }: { slug: string; current: ProjectSettin
           description="What a repository needs to report to this project."
         />
         <PanelBody className="space-y-4 p-4">
-          <CopyBlock label="spec-hub-config.yml" value={`hub_url: ${origin}\nproject: ${slug}`} />
-          <CopyBlock
-            label="Install the extension"
-            value={`specify extension add spec-hub --from ${origin}/extension/spec-hub.zip`}
-          />
+          {connect && (
+            <>
+              <CopyBlock label="spec-hub-config.yml" value={connect.configSnippet} />
+              <CopyBlock label="Install the extension" value={connect.installCommand} />
+            </>
+          )}
         </PanelBody>
       </Panel>
     </div>

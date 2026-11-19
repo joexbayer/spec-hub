@@ -5,19 +5,14 @@ import {
   type Edge,
   type Node,
   ReactFlow,
-  ReactFlowProvider,
   useReactFlow,
   useStore,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useTheme } from 'next-themes'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { nodeSize } from './layout'
 import { nodeTypes } from './nodes'
-
-export function GraphProvider({ children }: { children: ReactNode }) {
-  return <ReactFlowProvider>{children}</ReactFlowProvider>
-}
 
 // Below this zoom card text gets too small to read, so a graph wider than the canvas starts at its
 // top-left corner at this zoom instead of shrinking to fit.
@@ -87,7 +82,7 @@ export function GraphCanvas({
 }) {
   const { resolvedTheme } = useTheme()
   return (
-    // ReactFlow reuses an enclosing GraphProvider and creates its own when there is none.
+    // ReactFlow reuses an enclosing ReactFlowProvider and creates its own when there is none.
     <ReactFlow
       nodes={nodes}
       edges={edges}

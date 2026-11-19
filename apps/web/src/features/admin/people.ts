@@ -1,4 +1,4 @@
-import { getJson } from './http'
+import { getJson } from '@/lib/api'
 
 // GET /api/people: everyone who has signed in (hub admins and project admins only)
 export type Person = {
