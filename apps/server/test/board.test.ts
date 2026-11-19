@@ -124,6 +124,16 @@ describe('GET /api/projects/:slug/board', () => {
     expect(lastReportAt).toEqual({ [a.id]: reportA.getTime(), [b.id]: reportB.getTime() })
   })
 
+  it('names members an admin added who have not signed in yet', async () => {
+    const { p, cookie } = await setup()
+    await db
+      .insert(membership)
+      .values({ projectId: p.id, githubId: '9001', assignedLogin: 'later', role: 'member' })
+    const { board, pending } = await json(request('/api/projects/acme/board', { headers: cookie }))
+    expect(pending).toEqual(['later'])
+    expect(board.members.map((m: { githubLogin: string }) => m.githubLogin)).not.toContain('later')
+  })
+
   it('rejects non-members, signed-out callers and unknown projects', async () => {
     await setup()
     const outsider = { cookie: await sessionCookie(await createUser('mallory')) }

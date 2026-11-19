@@ -53,7 +53,7 @@ export function BoardPage({
   onViewChange: (v: BoardView) => void
 }) {
   const me = useQuery(meQuery)
-  const { board: query, lastReportAt, defaultBranch } = useBoard(slug)
+  const { board: query, lastReportAt, pending, defaultBranch } = useBoard(slug)
   const board = query.data
   const name = me.data?.projects.find((p) => p.slug === slug)?.name ?? slug
   const blockedBy = useMemo(() => (board ? buildDependencyGraph(board).blockedBy : new Map()), [board])
@@ -181,6 +181,7 @@ export function BoardPage({
               board={board}
               lastReportAt={lastReportAt}
               defaultBranch={defaultBranch}
+              pending={pending}
               className={view === 'list' ? undefined : 'grid items-start gap-4 space-y-0 lg:grid-cols-3'}
             />
           </div>

@@ -41,12 +41,15 @@ export function SideRail({
   board,
   lastReportAt,
   defaultBranch,
+  pending = [],
   className,
 }: {
   slug: string
   board: Board
   lastReportAt: LastReportAt
   defaultBranch?: string
+  /** logins an admin added who have not signed in yet */
+  pending?: string[]
   className?: string
 }) {
   const { blockedBy } = buildDependencyGraph(board)
@@ -138,9 +141,9 @@ export function SideRail({
       </Panel>
 
       <Panel>
-        <PanelHeader title="Team" count={board.members.length} />
+        <PanelHeader title="Team" count={board.members.length + pending.length} />
         <PanelBody>
-          {board.members.length === 0 ? (
+          {board.members.length + pending.length === 0 ? (
             <EmptyState icon={Users} title="No members yet" className="py-6">
               A project admin adds people from the Admin page.
             </EmptyState>
@@ -177,6 +180,15 @@ export function SideRail({
                   </li>
                 )
               })}
+              {pending.map((login) => (
+                <li key={`pending-${login}`} className="flex items-center gap-3 px-4 py-3">
+                  <OwnerAvatar owner={{ kind: 'handle', handle: login }} size="default" />
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="truncate text-sm font-medium">@{login}</div>
+                    <div className="text-xs text-muted-foreground">Added, hasn't signed in yet</div>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </PanelBody>
