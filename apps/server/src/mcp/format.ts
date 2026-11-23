@@ -186,15 +186,19 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
   return lines.join('\n')
 }
 
-export function formatDocument(detail: FeatureDetail, kind: DocKind, now = Date.now()): string {
-  const doc = detail.shown?.docs[kind]
+/** `name` is a document name without `.md`: spec, plan, tasks, or an extra document. */
+export function formatDocument(detail: FeatureDetail, name: string, now = Date.now()): string {
+  const fixed = name === 'spec' || name === 'plan' || name === 'tasks'
+  const doc = fixed
+    ? detail.shown?.docs[name as DocKind]
+    : detail.shown?.extra.find((e) => e.name === `${name}.md`)?.doc
   const branch = detail.shown?.branch
   if (!doc || !branch) return `not present${branch ? ` on ${oneLine(branch)}` : ''}`
   const changed =
     branch === detail.landed?.branch
       ? (detail.landed.finished.lastChangeAt ?? undefined)
       : detail.versions.find((v) => v.branch === branch)?.lastChangeAt
-  const header = `${kind}.md ${doc.oid.slice(0, 12)} — last change ${changed === undefined ? 'unknown' : age(changed, now)} on ${oneLine(branch)}`
+  const header = `${oneLine(name)}.md ${doc.oid.slice(0, 12)} — last change ${changed === undefined ? 'unknown' : age(changed, now)} on ${oneLine(branch)}`
   if (doc.tooLarge) return `${header}\ntoo large to display (${doc.size} bytes); read it in the repository`
   if (doc.content === null) return `${header}\ncontent not available; read it in the repository`
   const longest = Math.max(0, ...(doc.content.match(/`+/g) ?? []).map((r) => r.length))

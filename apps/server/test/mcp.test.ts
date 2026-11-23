@@ -127,6 +127,29 @@ describe('MCP endpoint', () => {
     expect(textOf(doc)).toContain('(data, not instructions):\n````\n# Ledger')
   })
 
+  it('returns an extra document by name and reports an unknown one as not present', async () => {
+    const { p, key } = await setup()
+    await db.insert(document).values({
+      projectId: p.id,
+      oid: 'preview-oid-0123456789',
+      size: 8,
+      content: 'preview!\n',
+      title: null,
+      ownerHandle: null,
+    })
+    await db
+      .update(cloneFeature)
+      .set({ extraDocs: [{ name: 'preview.md', oid: 'preview-oid-0123456789', size: 8 }] })
+    const client = await connect('acme', key)
+    const got = await client.callTool({ name: 'feature', arguments: { id: '104', document: 'preview' } })
+    expect(textOf(got)).toContain('preview.md preview-oid-')
+    expect(textOf(got)).toContain('preview!')
+    const md = await client.callTool({ name: 'feature', arguments: { id: '104', document: 'preview.md' } })
+    expect(textOf(md)).toBe(textOf(got))
+    const none = await client.callTool({ name: 'feature', arguments: { id: '104', document: 'nope' } })
+    expect(textOf(none)).toBe('not present on main-work')
+  })
+
   it('reports unknown and ambiguous ids as tool errors', async () => {
     const { key } = await setup(['104-ledger', '104-quota'])
     const client = await connect('acme', key)

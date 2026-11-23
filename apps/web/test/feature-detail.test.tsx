@@ -36,6 +36,7 @@ const doc = (over: Partial<ShownDoc>): ShownDoc => ({
 
 const shown = {
   branch: 'b',
+  extra: [{ name: 'preview.md', doc: doc({ content: '# Hello preview' }) }],
   docs: {
     spec: doc({ content: '# Hello spec' }),
     plan: null,
@@ -53,6 +54,16 @@ describe('DocumentTabs', () => {
     expect(screen.getByText('This branch has no plan.md yet.')).toBeTruthy()
     rerender(<DocumentTabs slug="acme" shown={shown} tab="tasks" onTabChange={() => {}} />)
     expect(screen.getByText('Too large to display (9999999 bytes). Read it in the repository.')).toBeTruthy()
+  })
+
+  it('shows an extra document as its own tab, and falls back to spec for an unknown tab', () => {
+    const { rerender } = render(
+      <DocumentTabs slug="acme" shown={shown} tab="preview" onTabChange={() => {}} />,
+    )
+    expect(screen.getByRole('tab', { name: 'preview' })).toBeTruthy()
+    expect(screen.getByText('Hello preview')).toBeTruthy()
+    rerender(<DocumentTabs slug="acme" shown={shown} tab="nope" onTabChange={() => {}} />)
+    expect(screen.getByText('Hello spec')).toBeTruthy()
   })
 
   it('reports tab changes', () => {
@@ -125,7 +136,7 @@ describe('FeaturePage with a finished feature', () => {
       entry: null,
       landed,
       versions: [version],
-      shown: { branch: '001-a', docs: { spec: null, plan: null, tasks: null } },
+      shown: { branch: '001-a', extra: [], docs: { spec: null, plan: null, tasks: null } },
     })
     // jsdom lacks the pointer-capture and scroll APIs Radix Select calls.
     Element.prototype.hasPointerCapture = () => false
@@ -145,7 +156,7 @@ describe('FeaturePage with a finished feature', () => {
       entry: null,
       landed,
       versions: [],
-      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+      shown: { branch: 'main', extra: [], docs: { spec: null, plan: null, tasks: null } },
     })
     expect(await screen.findByText('Finished title')).toBeTruthy()
     expect(screen.getAllByText('Landed').length).toBeGreaterThan(0)
@@ -168,7 +179,7 @@ describe('FeaturePage with a finished feature', () => {
       entry: null,
       landed: { ...landed, finished: { ...finished, landedAt: null } },
       versions: [],
-      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+      shown: { branch: 'main', extra: [], docs: { spec: null, plan: null, tasks: null } },
     })
     expect(await screen.findByText('landing time unknown')).toBeTruthy()
     expect(screen.getByText('unknown')).toBeTruthy()
@@ -179,7 +190,7 @@ describe('FeaturePage with a finished feature', () => {
       entry: null,
       landed,
       versions: [],
-      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+      shown: { branch: 'main', extra: [], docs: { spec: null, plan: null, tasks: null } },
     })
     expect(await screen.findByText(/^landed .*ago$/)).toBeTruthy()
   })
@@ -198,7 +209,7 @@ describe('FeaturePage with a finished feature', () => {
       entry: null,
       landed,
       versions: [version],
-      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+      shown: { branch: 'main', extra: [], docs: { spec: null, plan: null, tasks: null } },
     })
     await screen.findByText('Finished title')
     // one choice means a plain chip, not a select

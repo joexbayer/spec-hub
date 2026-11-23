@@ -81,9 +81,11 @@ const mcp = createMcpHandler(({ authInfo }) => {
           .max(255)
           .describe('Feature number ("104") or directory name ("104-ledger-settlement")'),
         document: z
-          .enum(['spec', 'plan', 'tasks'])
+          .string()
+          .min(1)
+          .max(64)
           .optional()
-          .describe('Return the full text of this document'),
+          .describe('spec, plan, tasks, or an extra document such as preview'),
         branch: z
           .string()
           .min(1)
@@ -94,15 +96,7 @@ const mcp = createMcpHandler(({ authInfo }) => {
     },
     guarded(
       'feature',
-      async ({
-        id,
-        document,
-        branch,
-      }: {
-        id: string
-        document?: 'spec' | 'plan' | 'tasks'
-        branch?: string
-      }) => {
+      async ({ id, document, branch }: { id: string; document?: string; branch?: string }) => {
         const board = await loadBoard(db, caller.projectId)
         const all = [...board.inFlight, ...board.stale].map((e) => e.dir).concat(board.landedDirs)
         const known = [...new Set(all)]
@@ -117,7 +111,9 @@ const mcp = createMcpHandler(({ authInfo }) => {
         const dir = matches[0]
         const detail = dir ? await loadFeature(db, caller.projectId, dir, branch) : null
         if (!detail) return failure(`no feature ${oneLine(id)} in flight or finished`)
-        return text(document ? formatDocument(detail, document) : formatFeature(detail, board))
+        return text(
+          document ? formatDocument(detail, document.replace(/\.md$/, '')) : formatFeature(detail, board),
+        )
       },
     ),
   )

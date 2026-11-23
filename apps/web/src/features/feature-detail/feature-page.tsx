@@ -410,12 +410,17 @@ export function FeaturePage({
         <RailSection icon={<FileText />} title="Documents" count={docsPresent}>
           {shown ? (
             <ul className="space-y-2">
-              {(['spec', 'plan', 'tasks'] as const).map((name) => {
-                const doc = shown.docs[name]
+              {[
+                ...(['spec', 'plan', 'tasks'] as const).map((name) => ({
+                  file: `${name}.md`,
+                  doc: shown.docs[name],
+                })),
+                ...shown.extra.map((e) => ({ file: e.name, doc: e.doc })),
+              ].map(({ file, doc }) => {
                 return (
-                  <li key={name} className="flex items-center gap-2 text-sm">
+                  <li key={file} className="flex items-center gap-2 text-sm">
                     <FileText aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className={doc ? 'font-medium' : 'text-muted-foreground'}>{name}.md</span>
+                    <span className={doc ? 'font-medium' : 'text-muted-foreground'}>{file}</span>
                     <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                       {doc ? (
                         <>
