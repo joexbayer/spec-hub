@@ -3,11 +3,20 @@ import { render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { BoardStats } from '@/features/board/board-stats'
 import { FeatureList } from '@/features/board/feature-list'
+import { SideRail } from '@/features/board/side-rail'
 
 // The list links with the typed router Link; a bare anchor stands in so no router is needed.
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <a href="/" className={className}>
+  Link: ({
+    children,
+    className,
+    params,
+  }: {
+    children: React.ReactNode
+    className?: string
+    params?: { slug: string; dir: string }
+  }) => (
+    <a href={params ? `/p/${params.slug}/f/${params.dir}` : '/'} className={className}>
       {children}
     </a>
   ),
@@ -61,4 +70,16 @@ test('stat strip counts and list titles', () => {
   expect(within(tile('Blocked')).getByText('1')).toBeTruthy()
   expect(within(tile('Collisions')).getByText('1')).toBeTruthy()
   expect(screen.getByText('Alpha feature')).toBeTruthy()
+})
+
+test('a recently landed row links to its feature page', () => {
+  render(
+    <SideRail
+      slug="demo"
+      board={{ ...board, recentlyLanded: [{ dir: '004-delta', firstSeenAt: Date.now(), baseline: false }] }}
+      lastReportAt={{}}
+    />,
+  )
+  const link = screen.getByText('Delta').closest('a')
+  expect(link?.getAttribute('href')).toBe('/p/demo/f/004-delta')
 })

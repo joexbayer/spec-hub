@@ -2,7 +2,17 @@ import { type Board, buildDependencyGraph, buildPipeline, buildWorkMap, PHASE_OR
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { Edge, Node } from '@xyflow/react'
-import { AlertTriangle, Columns3, GitBranch, LayoutList, Network, Plug, User, Workflow } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Columns3,
+  GitBranch,
+  LayoutList,
+  Network,
+  Plug,
+  User,
+  Workflow,
+} from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
@@ -69,6 +79,11 @@ export function BoardPage({
                 ))}
               </TabsList>
             </Tabs>
+            <Button variant="outline" className="shadow-xs" asChild>
+              <Link to="/p/$slug/finished" params={{ slug }}>
+                <CheckCircle2 /> Finished
+              </Link>
+            </Button>
             <Button variant="outline" className="shadow-xs" asChild>
               <Link to="/p/$slug/map" params={{ slug }}>
                 <Network /> Dependency map
@@ -235,8 +250,13 @@ function PipelineView({ slug, board }: { slug: string; board: Board }) {
               viewport={{ x: 28, y: 28, zoom: PIPELINE_ZOOM }}
               onSelect={setSelected}
               onOpen={(dir) => {
-                if (nodes.find((n) => n.id === dir)?.type === 'feature')
-                  navigate({ to: '/p/$slug/f/$dir', params: { slug, dir } })
+                const n = nodes.find((x) => x.id === dir)
+                if (n?.type === 'feature') navigate({ to: '/p/$slug/f/$dir', params: { slug, dir } })
+                else if (n?.type === 'landed')
+                  navigate({
+                    to: '/p/$slug/f/$dir',
+                    params: { slug, dir: (n.data as { landed: { dir: string } }).landed.dir },
+                  })
               }}
             />
           </div>

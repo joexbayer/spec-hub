@@ -115,7 +115,7 @@ export function SideRail({
                   key={l.dir}
                   icon={<GitMerge />}
                   tone="bg-phase-landed/10 text-phase-landed"
-                  title={titleFromDir(l.dir)}
+                  title={feature(l.dir, titleFromDir(l.dir))}
                   aside={
                     <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
                       {formatDistanceToNow(l.firstSeenAt, { addSuffix: true })}
