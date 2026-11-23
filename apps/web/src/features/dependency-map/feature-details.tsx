@@ -76,9 +76,12 @@ export function FeatureDetails({
           ) : (
             <ul className="space-y-1.5">
               {entry.branches.map((b) => (
-                <li key={`${b.carrierUserId}:${b.branch}`} className="flex items-center gap-2">
+                <li key={`${b.carrierUserId ?? 'remote'}:${b.branch}`} className="flex items-center gap-2">
                   <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 font-mono text-xs break-all">{b.branch}</span>
+                  {b.carrierUserId === null ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">shared remote</span>
+                  ) : null}
                   {b.pushed ? null : (
                     <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                       <CloudOff aria-hidden className="size-3" /> not pushed

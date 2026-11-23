@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { connectQuery } from '@/features/connect/connect-query'
 import { getJson, send } from '@/lib/api'
 
@@ -37,6 +38,7 @@ function SettingsPanel({ slug, current }: { slug: string; current: ProjectSettin
       name: current.name,
       defaultBranch: current.defaultBranch,
       numbering: current.numbering,
+      sharePushedBranches: current.sharePushedBranches,
     },
   })
 
@@ -96,6 +98,22 @@ function SettingsPanel({ slug, current }: { slug: string; current: ProjectSettin
                       <SelectItem value="timestamp">Timestamp</SelectItem>
                     </SelectContent>
                   </Select>
+                )}
+              />
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="s-share">Share pushed branches</Label>
+                <p className="text-sm text-muted-foreground">
+                  Connected clones also report teammates' pushed branches from the last 14 days, so work shows
+                  before everyone connects.
+                </p>
+              </div>
+              <Controller
+                control={control}
+                name="sharePushedBranches"
+                render={({ field }) => (
+                  <Switch id="s-share" checked={field.value} onCheckedChange={field.onChange} />
                 )}
               />
             </div>

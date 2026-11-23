@@ -10,7 +10,7 @@ const size = () => ({ width: CARD_W, height: CARD_H })
 
 export type Elements = { nodes: Node[]; edges: Edge[] }
 
-function ownerOf(board: Board, userId: string): Owner {
+function ownerOf(board: Board, userId: string | null): Owner {
   const m = board.members.find((x) => x.userId === userId)
   return m
     ? { kind: 'member', userId: m.userId, githubLogin: m.githubLogin, name: m.name, image: m.image }
@@ -23,14 +23,15 @@ export function buildVersionElements(detail: FeatureDetail, board: Board): Eleme
   const title = detail.entry?.title ?? titleFromDir(dir)
   const nodes: Node[] = []
   const edges: Edge[] = []
-  const people = new Map<string, number>()
+  // A null carrier is a branch seen on the shared remote: one "Shared remote" node, as on the work map.
+  const people = new Map<string | null, number>()
   for (const v of detail.versions) people.set(v.carrierUserId, (people.get(v.carrierUserId) ?? 0) + 1)
   for (const [userId, count] of people) {
     nodes.push({
-      id: `person:${userId}`,
+      id: `person:${userId ?? 'remote'}`,
       type: 'person',
       position: { x: 0, y: 0 },
-      data: { owner: ownerOf(board, userId), count },
+      data: { owner: ownerOf(board, userId), count, shared: userId === null },
     })
   }
   for (const v of detail.versions) {
@@ -67,7 +68,7 @@ export function buildVersionElements(detail: FeatureDetail, board: Board): Eleme
       },
     )
     edges.push(
-      { id: `p:${v.branch}`, source: `person:${v.carrierUserId}`, target: `branch:${v.branch}` },
+      { id: `p:${v.branch}`, source: `person:${v.carrierUserId ?? 'remote'}`, target: `branch:${v.branch}` },
       { id: `v:${v.branch}`, source: `branch:${v.branch}`, target: `version:${v.branch}` },
     )
   }

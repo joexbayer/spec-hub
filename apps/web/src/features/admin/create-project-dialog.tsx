@@ -28,7 +28,13 @@ export function CreateProjectDialog({ onCreated }: { onCreated: (slug: string) =
     formState: { errors, isSubmitting },
   } = useForm<ProjectFields>({
     resolver: zodResolver(projectFields),
-    defaultValues: { slug: '', name: '', defaultBranch: 'main', numbering: 'sequential' },
+    defaultValues: {
+      slug: '',
+      name: '',
+      defaultBranch: 'main',
+      numbering: 'sequential',
+      sharePushedBranches: false,
+    },
   })
 
   const submit = handleSubmit(async (values) => {

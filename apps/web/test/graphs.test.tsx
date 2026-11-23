@@ -1,8 +1,11 @@
 import type { BoardEntry } from '@spec-hub/core'
 import { PHASE_ORDER } from '@spec-hub/core'
+import { render, screen } from '@testing-library/react'
 import type { Edge, Node } from '@xyflow/react'
+import { ReactFlowProvider } from '@xyflow/react'
 import { expect, test } from 'vitest'
 import { CARD_H, CARD_W, dagreLayout, pipelineLayout } from '@/features/graphs/layout'
+import { PersonNode } from '@/features/graphs/nodes'
 
 const size = () => ({ width: CARD_W, height: CARD_H })
 
@@ -58,4 +61,19 @@ test('pipelineLayout keeps a feature that is in flight again apart from its land
   )
   // lanes sit under the edge layer so lines between lanes cross them visibly
   expect(nodes.filter((n) => n.type === 'column').every((n) => n.zIndex === -1)).toBe(true)
+})
+
+const props = {
+  data: { owner: { kind: 'unknown' }, count: 2, shared: true },
+  selected: false,
+} as unknown as Parameters<typeof PersonNode>[0]
+
+test('the work map labels the shared-remote person "Shared remote", not an avatar name', () => {
+  render(
+    <ReactFlowProvider>
+      <PersonNode {...props} />
+    </ReactFlowProvider>,
+  )
+  expect(screen.getByText('Shared remote')).toBeTruthy()
+  expect(screen.queryByText('unknown')).toBeNull()
 })

@@ -7,6 +7,7 @@ import { useBoard } from '@/features/board/board-query'
 import { GraphCanvas } from '@/features/graphs/graph-canvas'
 import { EDGE_SWATCH, GraphLegend, NODE_SWATCH } from '@/features/graphs/legend'
 import { buildNeighbourhood, buildVersionElements } from './graph-elements'
+import { REMOTE_LABEL } from './remote-label'
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
@@ -48,6 +49,9 @@ export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureD
                   <GitBranch aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0">
                     <span className="block font-mono text-xs break-all">{v.branch}</span>
+                    {v.carrierUserId === null ? (
+                      <span className="block text-xs text-muted-foreground">{REMOTE_LABEL}</span>
+                    ) : null}
                     {v.branch === detail.shown?.branch ? (
                       <span className="text-xs text-muted-foreground">(shown on the board)</span>
                     ) : null}

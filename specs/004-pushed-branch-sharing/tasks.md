@@ -36,7 +36,7 @@ reporter; server tests in parallel agents use their own `SPECHUB_TEST_DB`.
 
 ## Phase 5: Web
 
-- [ ] T007 [deps: T004] [US1] @implementation Web: a "Share pushed branches" switch in `apps/web/src/features/admin/settings-tab.tsx` (one line of help from contracts/interfaces.md), create dialog default false; null carriers: feature page branch picker/versions show "Seen on the shared remote" and people/carrier counts skip them; `graph-elements.ts` and `dependency-map/feature-details.tsx` handle null; work map shows the "Shared remote" node. Tests in `apps/web/test/admin.test.tsx`, `feature-detail.test.tsx`, `graphs.test.tsx` as fits.
+- [X] T007 [deps: T004] [US1] @implementation Web: a "Share pushed branches" switch in `apps/web/src/features/admin/settings-tab.tsx` (one line of help from contracts/interfaces.md), create dialog default false; null carriers: feature page branch picker/versions show "Seen on the shared remote" and people/carrier counts skip them; `graph-elements.ts` and `dependency-map/feature-details.tsx` handle null; work map shows the "Shared remote" node. Tests in `apps/web/test/admin.test.tsx`, `feature-detail.test.tsx`, `graphs.test.tsx` as fits.
 
 ## Phase 6: Polish
 

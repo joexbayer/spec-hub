@@ -6,6 +6,14 @@ import { CreateProjectDialog } from '@/features/admin/create-project-dialog'
 import { MembersTab } from '@/features/admin/members-tab'
 import { assignable, type Person } from '@/features/admin/people'
 import { detailText } from '@/features/admin/security-log-tab'
+import { SettingsTab } from '@/features/admin/settings-tab'
+
+// Radix Switch measures itself; jsdom has no ResizeObserver.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -135,4 +143,36 @@ test('removing a member refreshes me, so a removed or demoted admin loses admin 
   fireEvent.click(await screen.findByRole('button', { name: 'Remove me' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
   await waitFor(() => expect(client.getQueryState(['me'])?.isInvalidated).toBe(true))
+})
+
+test('settings tab shows the share-pushed-branches switch and sends it in the PATCH body', async () => {
+  const project = {
+    slug: 'demo',
+    name: 'Demo',
+    defaultBranch: 'main',
+    numbering: 'sequential',
+    sharePushedBranches: false,
+    createdAt: '2026-01-01',
+  }
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    const body = init?.method === 'PATCH' ? { ...project, sharePushedBranches: true } : project
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <SettingsTab slug="demo" />
+    </QueryClientProvider>,
+  )
+  const toggle = await screen.findByRole('switch', { name: 'Share pushed branches' })
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  fireEvent.click(toggle)
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => {
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ sharePushedBranches: true })
+  })
 })

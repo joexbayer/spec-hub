@@ -310,9 +310,10 @@ function workMapElements(board: Board, lastReportAt: LastReportAt): { nodes: Nod
       id: `person:${p.userId}`,
       type: 'person',
       position: at,
-      ariaLabel: ownerName(p.owner),
+      ariaLabel: p.shared ? 'Shared remote' : ownerName(p.owner),
       data: {
         owner: p.owner,
+        shared: p.shared,
         lastReportAt: lastReportAt[p.userId],
         count: new Set(p.branchIds.flatMap((id) => map.branches.find((b) => b.id === id)?.dirs ?? [])).size,
       },
