@@ -5,6 +5,8 @@ routes are chained so their types are inferred (R1, R12).
 
 Spec 005 adds `GET /api/projects/:slug/finished` and the default-branch version on `GET /api/projects/:slug/features/:dir`: see [005's web contract](../../005-finished-features/contracts/web.md).
 
+Spec 004 adds `sharePushedBranches`, the branch `remote` flag, the content-based carry check and nullable carriers: see [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md).
+
 - **Auth**: Better Auth session cookie.
 - **Mutations**: also require a same-origin `Origin` header (Hono `csrf()`).
 - **Validation**: every body and parameter is validated with zod.

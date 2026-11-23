@@ -34,6 +34,12 @@ sh .specify/extensions/spec-hub/scripts/spec-hub private add backup/
 
 Reports also include the default branch's specs when it has moved since the hub last saw it, so the hub can show finished features. One connected member with this version of the extension is enough to fill that list for the whole project.
 
+A branch counts as working on a feature only if its spec, plan, tasks (or extra documents) contain text the default branch never had, so deploy branches and squash-merged leftovers don't show.
+
+## Teammates' pushed branches
+
+The hub project setting "Share pushed branches" is off by default. With it on, connected clones also report teammates' branches pushed in the last 14 days. They show under their author, marked "seen on the shared remote". One connected member is enough. The reporter never fetches, so the list is as fresh as your last `git fetch` or `git pull`.
+
 ## Extra documents
 
 To show more than spec, plan and tasks, list file names in `.specify/extensions/spec-hub/spec-hub-config.yml`, separated by spaces (up to 5, each a `*.md` file other than spec, plan or tasks):

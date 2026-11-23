@@ -42,7 +42,7 @@ reporter; server tests in parallel agents use their own `SPECHUB_TEST_DB`.
 
 ### Wave 4 (parallel, deps: T006,T007)
 
-- [ ] T008 [P] @implementation Docs: spec 001 contract pointers to `specs/004-pushed-branch-sharing/contracts/interfaces.md` (reporter-http, extension "What a report contains", web-api); extension README (the option, the 14-day window, "carries a feature only with new document text"); `reporter-testing` skill (content check, remote pass, cache, how to build deploy-branch and squash-merge fixtures).
+- [X] T008 [P] @implementation Docs: spec 001 contract pointers to `specs/004-pushed-branch-sharing/contracts/interfaces.md` (reporter-http, extension "What a report contains", web-api); extension README (the option, the 14-day window, "carries a feature only with new document text"); `reporter-testing` skill (content check, remote pass, cache, how to build deploy-branch and squash-merge fixtures).
 - [ ] T009 [P] @routine Run `pnpm check`, `shellcheck -s sh` and `dash -n` on the reporter; re-run any failing test alone; report, fix nothing.
 
 ## Dependencies
