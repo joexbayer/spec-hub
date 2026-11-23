@@ -1,4 +1,11 @@
-import { type Board, buildDependencyGraph, buildPipeline, buildWorkMap, PHASE_ORDER } from '@spec-hub/core'
+import {
+  type Board,
+  buildDependencyGraph,
+  buildPipeline,
+  buildWorkMap,
+  type LandedFeature,
+  PHASE_ORDER,
+} from '@spec-hub/core'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { Edge, Node } from '@xyflow/react'
@@ -198,12 +205,16 @@ function pipelineElements(board: Board): { nodes: Node[]; edges: Edge[] } {
   const graph = buildDependencyGraph(board)
   const columns = [...PHASE_ORDER, 'landed' as const]
   const landed = buildPipeline(board).columns.find((c) => c.id === 'landed')?.landed ?? []
-  const columnOf = new Map<string, string>()
+  // dir -> its card and lane; an in-flight card wins over the same feature's landed card
+  const cardOf = new Map<string, { id: string; column: string }>()
   const nodes = pipelineLayout(columns, board.inFlight, landed).map((n) => {
-    if (n.type === 'landed') columnOf.set(n.id, 'landed')
+    if (n.type === 'landed') {
+      const dir = (n.data as { landed: LandedFeature }).landed.dir
+      if (!cardOf.has(dir)) cardOf.set(dir, { id: n.id, column: 'landed' })
+    }
     if (n.type !== 'feature') return n
     const entry = (n.data as FeatureNodeData).entry
-    columnOf.set(n.id, entry.phase.kind)
+    cardOf.set(n.id, { id: n.id, column: entry.phase.kind })
     const data = {
       entry,
       blocked: graph.blocked.has(n.id),
@@ -211,20 +222,22 @@ function pipelineElements(board: Board): { nodes: Node[]; edges: Edge[] } {
     }
     return { ...n, data, ariaLabel: featureAriaLabel(data) }
   })
-  const edges: Edge[] = graph.edges
-    .filter((e) => {
-      const from = columnOf.get(e.from)
-      return from !== undefined && columnOf.has(e.to) && from !== columnOf.get(e.to)
-    })
-    .map((e) => ({
-      id: `${e.from}->${e.to}`,
-      source: e.from,
-      target: e.to,
-      ...styleDependencyEdge({
-        blocking: graph.blockedBy.get(e.to)?.includes(e.from) ?? false,
-        inCycle: e.inCycle,
-      }),
-    }))
+  const edges: Edge[] = graph.edges.flatMap((e) => {
+    const from = cardOf.get(e.from)
+    const to = cardOf.get(e.to)
+    if (!from || !to || from.column === to.column) return []
+    return [
+      {
+        id: `${from.id}->${to.id}`,
+        source: from.id,
+        target: to.id,
+        ...styleDependencyEdge({
+          blocking: graph.blockedBy.get(e.to)?.includes(e.from) ?? false,
+          inCycle: e.inCycle,
+        }),
+      },
+    ]
+  })
   return { nodes, edges }
 }
 
