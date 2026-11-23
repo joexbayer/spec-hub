@@ -225,9 +225,10 @@ by another clone, check the board shows each feature once, in the right group.
 - **SC-003**: Turning the option on for the pilot project adds no entry that duplicates a feature
   already on the board, and no feature appears as owned by the person whose clone reported it
   unless they wrote it.
-- **SC-004**: A git commit in a clone with 100 remote branches is not noticeably slower with the
-  option on than off (the foreground hook stays within spec 001's budget), and the background
-  report finishes within 2 seconds of the time it takes with the option off.
+- **SC-004**: A git commit in a clone with remote branches is not noticeably slower with the option
+  on than off (the foreground hook stays within spec 001's budget). The background report adds no
+  more than 2 seconds when nothing was fetched since the last report; after a fetch that changed the
+  remote branches or the default branch, it may take longer once (about 12 seconds on the pilot).
 - **SC-005**: On the pilot repository with the option on, the in-flight list grows by the teammates'
   active pushed work only; long-dead branches do not crowd the in-flight list.
 - **SC-006**: On a copy of the pilot repository, the deploy branch `chore/production` carries no

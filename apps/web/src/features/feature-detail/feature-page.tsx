@@ -35,7 +35,6 @@ import { ApiError, json } from '@/lib/api'
 import { shortAgo } from '@/lib/time'
 import { DocumentTabs, type FeatureTab } from './document-tabs'
 import { DependenciesPanel, VersionsPanel } from './graph-panels'
-import { REMOTE_LABEL } from './remote-label'
 
 const UNKNOWN_OWNER: Owner = { kind: 'unknown' }
 
@@ -199,7 +198,7 @@ export function FeaturePage({
   const choices = [
     ...versions.map((v) => ({
       branch: v.branch,
-      label: v.carrierUserId === null ? `${v.branch} (${REMOTE_LABEL})` : v.branch,
+      label: v.carrierUserId === null ? `${v.branch} (seen on the shared remote)` : v.branch,
     })),
     ...(landed?.finished.reported && !versions.some((v) => v.branch === landed.branch)
       ? [{ branch: landed.branch, label: `${landed.branch} (landed)` }]
@@ -290,7 +289,7 @@ export function FeaturePage({
               {current?.carrierUserId === null ? (
                 <StateBadge
                   icon={<Users />}
-                  text={REMOTE_LABEL}
+                  text="Seen on the shared remote"
                   className="border-dashed text-muted-foreground"
                 />
               ) : null}

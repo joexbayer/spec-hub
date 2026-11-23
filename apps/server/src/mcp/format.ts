@@ -53,11 +53,12 @@ export function formatBoard(projectSlug: string, board: Board, now = Date.now())
     const branches = newest
       ? `${oneLine(newest.branch)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`
       : ''
-    const unpushed = e.branches.every((b) => b.carrierUserId === null)
-      ? ' (seen on the shared remote)'
-      : e.branches.every((b) => !b.pushed)
-        ? ' (not pushed)'
-        : ''
+    const unpushed =
+      newest?.carrierUserId === null
+        ? ' (seen on the shared remote)'
+        : e.branches.every((b) => !b.pushed)
+          ? ' (not pushed)'
+          : ''
     const marks: string[] = []
     const blockers = graph.blockedBy.get(e.dir)
     if (blockers) marks.push(`⛔ blocked by ${dirs(blockers)}`)

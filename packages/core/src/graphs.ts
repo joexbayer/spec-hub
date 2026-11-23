@@ -289,7 +289,7 @@ export function buildWorkMap(board: Board): WorkMap {
   for (const b of branchList) {
     let p = people.get(b.userId)
     if (!p) {
-      const shared = b.id.startsWith('branch:remote:')
+      const shared = b.userId === 'remote'
       const m = shared ? undefined : board.members.find((x) => x.userId === b.userId)
       const owner: Owner = m
         ? { kind: 'member', userId: m.userId, githubLogin: m.githubLogin, name: m.name, image: m.image }

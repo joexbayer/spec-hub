@@ -61,8 +61,6 @@ export const compareVersions = (
   byString(a.branch, b.branch) ||
   byString(a.carrierUserId, b.carrierUserId)
 
-// A remote copy yields to a local branch of the same name; of several remote copies of one name, the
-// newest stays (ties: smaller carrier).
 /** One folder's versions without redundant remote copies: a remote copy yields to a local branch of
  * its name, and of several remote copies of one name the board's first (newest) is kept (FR-011). */
 export function dropRemoteCopies<
