@@ -188,3 +188,64 @@ describe('default.features', () => {
     expect(uploadableOids(m).sort()).toEqual([h('a'), h('c')])
   })
 })
+
+describe('extra documents', () => {
+  const extra = (name: string, oid = h('e'), size = 10) => ({ name, oid, size })
+  const branchWith = (extras: unknown[]) => {
+    const m = fixture()
+    const f = m.branches[0]?.features[0]
+    if (!f) throw new Error('fixture')
+    ;(f as { extra?: unknown[] }).extra = extras
+    return m
+  }
+  const defaultWith = (extras: unknown[]) => {
+    const m = fixture()
+    if (m.default) {
+      ;(m.default as { features?: unknown[] }).features = [
+        {
+          dir: '001-foo',
+          addedAt: 1792000000,
+          lastChangeAt: 1792990000,
+          author: null,
+          docs: { spec: null, plan: null, tasks: null },
+          extra: extras,
+        },
+      ]
+    }
+    return m
+  }
+
+  it('parses on branch and default features; absent still parses', () => {
+    expect(ok(branchWith([extra('preview.md')]))).toBe(true)
+    expect(ok(defaultWith([extra('preview.md')]))).toBe(true)
+    expect(ok(fixture())).toBe(true)
+  })
+
+  it('rejects more than 5 entries', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => extra(`d${i}.md`))
+    expect(ok(branchWith(many(5)))).toBe(true)
+    expect(ok(branchWith(many(6)))).toBe(false)
+    expect(ok(defaultWith(many(6)))).toBe(false)
+  })
+
+  it('rejects duplicate names', () => {
+    expect(ok(branchWith([extra('a.md'), extra('a.md', h('f'))]))).toBe(false)
+    expect(ok(defaultWith([extra('a.md'), extra('a.md', h('f'))]))).toBe(false)
+  })
+
+  it('rejects reserved and malformed names', () => {
+    for (const n of ['spec.md', 'plan.md', 'tasks.md', '../x.md', 'a/b.md', '.hidden.md', 'x.txt']) {
+      expect(ok(branchWith([extra(n)]))).toBe(false)
+    }
+  })
+
+  it('rejects a wrong-length oid', () => {
+    expect(ok(branchWith([extra('a.md', h('e', 64))]))).toBe(false)
+    expect(ok(defaultWith([extra('a.md', h('e', 64))]))).toBe(false)
+  })
+
+  it('uploadableOids includes extras', () => {
+    expect(uploadableOids(branchWith([extra('a.md', h('e'))]))).toContain(h('e'))
+    expect(uploadableOids(defaultWith([extra('a.md', h('d'))]))).toContain(h('d'))
+  })
+})
