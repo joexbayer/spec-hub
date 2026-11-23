@@ -126,7 +126,7 @@ Contracts: the "Review follow-ups" sections of contracts/reporter.md, web.md and
 ### Wave 8 (parallel, deps: T019,T020)
 
 - [X] T021 [P] @implementation Docs: extension README (the `documents` key, one paragraph), spec 001 extension contract pointer, `reporter-testing` skill (shallow clones skip the listing; the skip rule is by time).
-- [ ] T022 [P] @routine Run `pnpm check`, `shellcheck -s sh` and `dash -n` on the reporter; report, fix nothing.
+- [X] T022 [P] @routine Run `pnpm check`, `shellcheck -s sh` and `dash -n` on the reporter; report, fix nothing.
 
 ## Dependencies
 
