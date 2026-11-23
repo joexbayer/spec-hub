@@ -39,6 +39,15 @@ makes the whole team's pushed work visible. With it off, nothing changes.
 - Q: What happens to remote branches with no change for 14+ days? → A: They are reported and show
   in the collapsed stale group, by the same rule as all other work.
 
+### Session 2026-11-23
+
+- Q: Long-lived deploy branches (the pilot's `chore/staging`, `chore/production`) seem to carry dozens
+  of landed features. Ignore them by a project list? → A: No. They hold old copies of specs that
+  main already had (production: 24 folders, all old; staging: 35, of which only 2 are new work),
+  and the landing check misses them because it compares commits, which tree copies and squash
+  merges defeat. Fix the check instead, for every branch, local or remote: a branch carries a
+  feature only when one of its documents is a version the default branch never had.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See the team's pushed work before everyone connects (Priority: P1)
@@ -117,6 +126,10 @@ by another clone, check the board shows each feature once, in the right group.
 
 ### Edge Cases
 
+- **A deploy branch built by copying trees** (or any branch left behind after a squash merge): its
+  copies of landed specs are versions the default branch already had, so it carries nothing; only
+  documents with text the default branch never had make it carry a feature.
+
 - **A remote branch with the same name as one of the reporter's own local branches**: the local
   branch is reported as today; the remote copy is only used to decide whether it is pushed, as
   today, and is not reported a second time.
@@ -146,6 +159,15 @@ by another clone, check the board shows each feature once, in the right group.
   information about remote branches beyond spec 001's MUST leave the machine.
 - **FR-003**: A clone MUST pick up a change to the option no later than its next report, with no
   action by the developer.
+
+**Which branches carry a feature (all reports, option on or off)**
+
+- **FR-014**: A branch, local or remote, MUST carry a feature only when at least one of that
+  feature's documents on the branch (spec, plan, tasks, or a configured extra document) is a version
+  the default branch never had. A branch whose documents for a feature are all versions the default
+  branch has had (now or earlier) carries nothing for it, whatever its commit history. This replaces
+  the commit-based landed check of spec 001 (FR-012) for branches; work on a feature's own branch
+  still counts as activity (FR-016 of spec 001).
 
 **What is reported with the option on**
 
@@ -202,6 +224,9 @@ by another clone, check the board shows each feature once, in the right group.
   report finishes within 2 seconds of the time it takes with the option off.
 - **SC-005**: On the pilot repository with the option on, the in-flight list grows by the teammates'
   active pushed work only; long-dead branches do not crowd the in-flight list.
+- **SC-006**: On a copy of the pilot repository, the deploy branch `chore/production` carries no
+  feature and `chore/staging` carries only the features with text the default branch never had
+  (070 and 106 at the time of writing); feature 150, landed, is no longer shown in flight.
 
 ## Assumptions
 

@@ -34,4 +34,6 @@
 - Git terms (branch, remote, fetch, private prefix) are the product's domain language, inherited
   from spec 001, not implementation detail.
 - Clarified 2026-11-19: option in hub project settings (FR-001); old remote branches go to the
-  stale group (FR-008). Ready for `/speckit-plan`.
+  stale group (FR-008).
+- Clarified 2026-11-23: no ignore list; a branch carries a feature only with document text the
+  default branch never had (FR-014, SC-006), for all branches. Ready for `/speckit-plan`.
