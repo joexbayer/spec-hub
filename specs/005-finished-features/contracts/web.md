@@ -41,3 +41,21 @@ Times in milliseconds. Order: newest `landedAt` first, unknown last. 401 / 403 /
   A row whose documents were never reported says so instead of showing empty tabs.
 - **Board**: unchanged entries and groups. "Recently landed" rows (side rail) and landed cards
   (pipeline, double-click) open the feature page on the default branch.
+
+## Review follow-ups (2026-11-23)
+
+- `GET /api/projects/:slug/finished` returns `{ defaultBranch, finishedTipAt, finished }`
+  (`finishedTipAt` in ms or null; no `members`). The page header says "as of <relative time>".
+  Folders with no spec, plan or tasks are not listed.
+- `GET /api/projects/:slug/board` also returns `defaultBranch`; "Recently landed" rows and landed
+  pipeline cards open `/p/$slug/f/<dir>?branch=<defaultBranch>`.
+- Feature page: a finished feature's landing time shows in the header; an unknown landing time shows
+  as unknown, never as the first-seen date.
+
+## Extra documents (FR-016)
+
+- `ShownVersion` gains `extra: { name: string; doc: ShownDoc }[]` (for the shown version, branch or
+  default branch), in the order the reporter sent them.
+- The feature page shows one tab per extra document after spec, plan and tasks, labelled by the file
+  name without `.md` (`preview`), `?tab=preview`. Content renders with the same sanitized document
+  renderer, diagrams included.

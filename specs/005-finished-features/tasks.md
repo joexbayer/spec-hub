@@ -101,6 +101,33 @@ owner's features; reload the URL and get the same list.
 
 ---
 
+---
+
+## Phase 8: Review follow-ups (verify 2026-11-23: PASS-WITH-WARNINGS)
+
+Contracts: the "Review follow-ups" sections of contracts/reporter.md, web.md and mcp.md.
+
+### Wave 5 (parallel)
+
+- [ ] T014 [P] @implementation Server and core fixes: `buildFinished` drops rows that were reported (`addedAt` set) with no spec, plan or tasks, keeping the `landed_feature` row (W1); `loadFinished` returns `finishedTipAt` (ms or null) and no `members` (W2, necessity); `GET /board` also returns `defaultBranch` (W4); `formatFeature` describes the finished version when `detail.shown.branch === landed.branch` and adds `Also in flight on <branches>` (W3); `storeFinished` skips the delete when the listing's `tipAt` is older than the pre-update `default_tip_at` (W5); MCP `finished` with an unmatched owner answers `No finished feature by <owner>`. Tests: a non-feature folder is not listed; `finishedTipAt` returned; `feature {branch: main}` describes the finished version; the mixed-fleet delete case; an oversized default-branch document is stored as too large and surfaces as `tooLarge`.
+- [ ] T015 [P] @implementation Reporter fixes: `GET /config` returns `finishedTipAt` (Unix seconds or null); `default_features` skips when the local default-branch commit time is not newer than `finishedTipAt` (drop the `merge-base` check) and when `git rev-parse --is-shallow-repository` is true (W6, W7). E2E: a second commit on a feature branch after a stored listing uploads no blob and sends no `features`; a clone that lacks the hub's tip commit but is not newer sends no `features`; a shallow clone sends no `features`.
+- [ ] T017 [P] @implementation Core: manifest feature entries (branch and default) gain optional `extra: [{ name, oid, size }]` (≤ 5, unique names, name pattern from contracts/reporter.md, oid format checked); `manifestDocs` yields them; remove the unused `ManifestDefaultFeature` export. Tests in `packages/core/test/manifest.test.ts`.
+
+### Wave 6 (parallel, deps: T014,T015,T017)
+
+- [ ] T016 [P] [deps: T014] @implementation Web fixes: finished page header "as of <relative>" from `finishedTipAt`, response type without `members` (W2); recently landed rows and landed pipeline cards link with `?branch=<defaultBranch>` from the board response (W4); feature page: unknown landing time shows as unknown (W9), the landed time also in a finished-only header, number from `landed.finished.number`, no duplicate picker entry when a branch is named like the default branch; finished page: an `?owner=` not in the list shows as the selected value. Tests for each.
+- [ ] T018 [P] [deps: T017] @implementation Server extra documents: `extra_docs` jsonb (`[{name, oid, size}]`, default `[]`) on `clone_feature` and `landed_feature`, folded into migration `0005_finished_features` (regenerated; never applied outside test databases); ingest stores them for branch features and default features; `ShownVersion.extra` for the shown version (branch or default branch) via `shownDocs`. Tests in ingest and board tests.
+
+### Wave 7 (parallel, deps: T016,T018)
+
+- [ ] T019 [P] [deps: T018] @reasoning Reporter extra documents: read `documents` from the repo config (space-separated, ≤ 5, pattern, not spec/plan/tasks; invalid names ignored), report each listed file's blob in branch features (FEATURES_AWK) and default features (DEFAULT_AWK) as `extra`; add a commented `# documents: preview.md` line to `packages/extension/config-template.yml`. E2E: with `documents: preview.md`, a branch feature and a default feature report their preview, and it is uploaded and stored; without the key the manifest is unchanged.
+- [ ] T020 [P] [deps: T018] @implementation Web and MCP extra documents: the feature page shows a tab per `shown.extra` document after spec, plan and tasks (`?tab=<name without .md>`, route validation accepts those names), rendered by the existing sanitized document component; MCP `feature` `document` accepts `spec|plan|tasks` or an extra name with or without `.md` (≤ 64 chars). Tests (web tabs; MCP returns preview text).
+
+### Wave 8 (parallel, deps: T019,T020)
+
+- [ ] T021 [P] @implementation Docs: extension README (the `documents` key, one paragraph), spec 001 extension contract pointer, `reporter-testing` skill (shallow clones skip the listing; the skip rule is by time).
+- [ ] T022 [P] @routine Run `pnpm check`, `shellcheck -s sh` and `dash -n` on the reporter; report, fix nothing.
+
 ## Dependencies
 
 - T001, T002, T003 first (Wave 1, parallel).

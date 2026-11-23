@@ -38,6 +38,17 @@ This feature adds a **finished features** list to each project: every feature on
 readable in full, searchable, and available to agents. The board itself does not change: it stays
 about current work.
 
+## Clarifications
+
+### Session 2026-11-23
+
+- Q: Teams using a Spec Kit preset write more documents per feature (the pilot's `preview.md`, the
+  plan's code sketches and diagrams). How does the hub know to show them? → A: A project lists them
+  in the repository's Spec Hub config (`documents: preview.md`); none by default. Listed files are
+  reported and shown next to spec, plan and tasks.
+- Q: Separate feature or part of this one? → A: Part of this one, so a team updates the extension
+  and reconnects once.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Read a finished feature (Priority: P1)
@@ -211,6 +222,18 @@ fetched those changes, check the list and the four features' pages.
 - **FR-013**: Members' agents MUST be able to list finished features (narrowed by text and owner)
   and read a finished feature's summary and documents, read-only, scoped to the project linked to
   the repository as for the board (FR-022 to FR-024 of spec 001).
+
+**Extra documents**
+
+- **FR-014**: A project MUST be able to list, in its repository's Spec Hub config, up to 5 extra
+  document file names (for example `preview.md`) besides spec, plan and tasks. With none listed,
+  nothing changes.
+- **FR-015**: A connected clone MUST report each listed document found in a feature folder, on
+  branches and on the default branch, with the same rules as spec, plan and tasks (committed content
+  only, sent once per project, size limits).
+- **FR-016**: Members MUST be able to read each reported extra document on the feature page, beside
+  spec, plan and tasks, rendered as safely as they are (diagrams included); agents MUST be able to
+  ask for it by name.
 
 ### Key Entities
 

@@ -56,3 +56,33 @@ In `build_manifest`, when the clone has the default branch (`$base`):
     `OWNER_AWK` as for branch features.
 - No new output, no new command, no new git config. The foreground hook is untouched: all of this
   runs in the background report.
+
+## Review follow-ups (2026-11-23)
+
+- `GET /config` also returns `finishedTipAt` (Unix seconds or null). The reporter leaves `features`
+  out when its `<remote>/<default>` commit time is not newer than `finishedTipAt` (the hub's own
+  rule); no `git merge-base` call. A shallow clone never sends `features` (its history would
+  misattribute owners and landing times).
+- The hub deletes finished features missing from a listing only when the listing's `tipAt` is not
+  older than the project's `default_tip_at`, so an older listing cannot remove a folder that a newer
+  `dirs` step just recorded (mixed old and new reporters).
+
+## Extra documents (FR-014–FR-016)
+
+Repository config (`spec-hub-config.yml`, flat `key: value`):
+
+```yaml
+documents: preview.md
+```
+
+Space-separated file names, at most 5, each matching `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md$` and
+not `spec.md`, `plan.md` or `tasks.md`. Invalid names are ignored. Default: none.
+
+Every feature entry (branch features and `default.features`) gains an optional `extra` array:
+
+```json
+"extra": [ { "name": "preview.md", "oid": "c3d4…", "size": 8123 } ]
+```
+
+At most 5 entries, names unique and matching the pattern above. The documents count for the 409
+`missing` answer and the too-large markers like the others. Omitted when empty.
