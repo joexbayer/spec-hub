@@ -233,6 +233,115 @@ describe('GET /api/projects/:slug/features/:dir', () => {
   })
 })
 
+describe('finished features', () => {
+  const day = 24 * HOUR
+  const facts = (at: Date, specOid: string | null) => ({
+    addedAt: at,
+    lastChangeAt: at,
+    authorName: 'Dev',
+    authorEmail: 'dev@x.test',
+    specOid,
+  })
+
+  async function seedLanded(p: TestProject) {
+    await doc(p, 'spec-old', '# Old one\n**Owner**: bob\n', { title: 'Old one', ownerHandle: 'bob' })
+    await doc(p, 'spec-new', '# New one', { title: 'New one' })
+    const t = Date.now()
+    await db.insert(landedFeature).values([
+      // baseline: landedAt is addedAt (5 days ago), not firstSeenAt (today)
+      {
+        projectId: p.id,
+        dir: '000-old',
+        firstSeenAt: new Date(t),
+        baseline: true,
+        ...facts(new Date(t - 5 * day), 'spec-old'),
+        specSize: 20,
+      },
+      // non-baseline: landedAt is firstSeenAt (2 days ago)
+      {
+        projectId: p.id,
+        dir: '003-new',
+        firstSeenAt: new Date(t - 2 * day),
+        baseline: false,
+        ...facts(new Date(t - 9 * day), 'spec-new'),
+        authorEmail: 'bob.git@laptop.test',
+      },
+      { projectId: p.id, dir: '004-bare', firstSeenAt: new Date(t - 3 * day), baseline: false },
+      // also carried on a branch: in flight
+      {
+        projectId: p.id,
+        dir: '001-alpha',
+        firstSeenAt: new Date(t - 4 * day),
+        baseline: false,
+        ...facts(new Date(t - 4 * day), 'spec-a'),
+      },
+    ])
+  }
+
+  it('lists newest landed first with owner, reported and in-flight', async () => {
+    const { p, b, cookie } = await setup()
+    await seedLanded(p)
+    const res = await request('/api/projects/acme/finished', { headers: cookie })
+    expect(res.status).toBe(200)
+    const body = await json(res)
+    expect(body.defaultBranch).toBe('main')
+    expect(body.finished.map((f: { dir: string }) => f.dir)).toEqual([
+      '003-new',
+      '004-bare',
+      '001-alpha',
+      '000-old',
+    ])
+    const by = (d: string) => body.finished.find((f: { dir: string }) => f.dir === d)
+    expect(by('000-old').owner).toMatchObject({ kind: 'member', userId: b.id })
+    expect(by('003-new').owner).toMatchObject({ kind: 'member', userId: b.id })
+    expect(by('003-new').title).toBe('New one')
+    expect(by('004-bare').reported).toBe(false)
+    expect(by('003-new').reported).toBe(true)
+    expect(by('001-alpha').inFlight).toBe(true)
+    expect(by('003-new').inFlight).toBe(false)
+    expect(body.members[0].emails).toBeUndefined()
+  })
+
+  it('rejects signed-out callers, non-members and unknown projects', async () => {
+    await setup()
+    const outsider = { cookie: await sessionCookie(await createUser('mallory')) }
+    expect((await request('/api/projects/acme/finished')).status).toBe(401)
+    expect((await request('/api/projects/acme/finished', { headers: outsider })).status).toBe(403)
+    expect((await request('/api/projects/nope/finished', { headers: outsider })).status).toBe(404)
+  })
+
+  it("shows main's documents for a finished-only feature", async () => {
+    const { p, cookie } = await setup()
+    await seedLanded(p)
+    const body = await json(request('/api/projects/acme/features/003-new', { headers: cookie }))
+    expect(body.versions).toEqual([])
+    expect(body.shown.branch).toBe('main')
+    expect(body.shown.docs.spec.content).toBe('# New one')
+    expect(body.landed.branch).toBe('main')
+    expect(body.landed.finished).toMatchObject({ dir: '003-new', reported: true })
+  })
+
+  it('shows the branch by default and main on request when both exist', async () => {
+    const { p, cookie } = await setup()
+    await doc(p, 'spec-a-main', '# Alpha on main', { title: 'Alpha on main' })
+    await db.insert(landedFeature).values({
+      projectId: p.id,
+      dir: '001-alpha',
+      firstSeenAt: new Date(),
+      baseline: false,
+      ...facts(new Date(), 'spec-a-main'),
+    })
+    const base = '/api/projects/acme/features/001-alpha'
+    const dflt = await json(request(base, { headers: cookie }))
+    expect(dflt.shown.branch).toBe('001-alpha')
+    expect(dflt.shown.docs.spec.content).toBe('# Alpha\n**Owner**: alice\n')
+    expect(dflt.versions).toHaveLength(1)
+    const main = await json(request(`${base}?branch=main`, { headers: cookie }))
+    expect(main.shown.branch).toBe('main')
+    expect(main.shown.docs.spec.content).toBe('# Alpha on main')
+  })
+})
+
 describe('owner by email (spoofing)', () => {
   it("does not let a claimed commit email take another member's features", async () => {
     const eve = await createUser('eve')

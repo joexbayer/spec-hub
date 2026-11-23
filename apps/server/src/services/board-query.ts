@@ -1,12 +1,15 @@
 import type {
   Board,
   BoardEntry,
+  BoardMember,
   DocFacts,
   FeatureVersion,
+  FinishedFeature,
+  FinishedRow,
   LandedFeature,
   MemberIdentity,
 } from '@spec-hub/core'
-import { activityAt, buildBoard, compareVersions } from '@spec-hub/core'
+import { activityAt, buildBoard, buildFinished, compareVersions, finishedFeature } from '@spec-hub/core'
 import { and, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { Db } from '../db/client.ts'
@@ -50,7 +53,13 @@ export interface ShownVersion {
 
 export interface FeatureDetail {
   entry: BoardEntry | null
-  landed: LandedFeature | null
+  landed: {
+    dir: string
+    firstSeenAt: number
+    baseline: boolean
+    branch: string
+    finished: FinishedFeature
+  } | null
   versions: VersionSummary[]
   shown: ShownVersion | null
 }
@@ -151,10 +160,8 @@ async function loadVersionRows(db: Db, projectId: string) {
   }))
 }
 
-export async function loadBoard(db: Db, projectId: string, now = Date.now()): Promise<Board> {
-  const [versionRows, landedRows, memberRows, emailRows, [proj]] = await Promise.all([
-    loadVersionRows(db, projectId),
-    db.select().from(landedFeature).where(eq(landedFeature.projectId, projectId)),
+async function loadMembers(db: Db, projectId: string): Promise<MemberIdentity[]> {
+  const [memberRows, emailRows] = await Promise.all([
     db
       .select({
         userId: user.id,
@@ -170,6 +177,72 @@ export async function loadBoard(db: Db, projectId: string, now = Date.now()): Pr
       .selectDistinct({ userId: clone.userId, email: clone.commitEmail })
       .from(clone)
       .where(and(eq(clone.projectId, projectId), ne(clone.commitEmail, ''))),
+  ])
+  // A commit email is self-declared by the reporter, so it never overrides a GitHub account email
+  // and counts only when exactly one member's clones claim it (else anyone could take others' features).
+  const accountEmails = new Set(memberRows.map((m) => m.email.toLowerCase()))
+  const memberIds = new Set(memberRows.map((m) => m.userId))
+  const claimants = new Map<string, Set<string>>()
+  for (const e of emailRows) {
+    if (!memberIds.has(e.userId)) continue
+    const email = e.email.toLowerCase()
+    const set = claimants.get(email) ?? new Set<string>()
+    set.add(e.userId)
+    claimants.set(email, set)
+  }
+  const commitEmailsOf = (userId: string) =>
+    [...claimants]
+      .filter(([email, users]) => users.has(userId) && users.size === 1 && !accountEmails.has(email))
+      .map(([email]) => email)
+  return memberRows.map((m) => ({
+    userId: m.userId,
+    githubLogin: m.githubLogin,
+    name: m.name,
+    image: m.image,
+    emails: [...new Set([m.email.toLowerCase(), ...commitEmailsOf(m.userId)])].filter((e) => e !== ''),
+  }))
+}
+
+// landed_feature rows of the project with their three documents' columns, optionally one dir.
+async function loadLandedRows(db: Db, projectId: string, dir?: string) {
+  const specDoc = alias(document, 'spec_doc')
+  const planDoc = alias(document, 'plan_doc')
+  const tasksDoc = alias(document, 'tasks_doc')
+  const rows = await db
+    .select({
+      landed: landedFeature,
+      spec: docColumns(specDoc as unknown as typeof document),
+      plan: docColumns(planDoc as unknown as typeof document),
+      tasks: docColumns(tasksDoc as unknown as typeof document),
+    })
+    .from(landedFeature)
+    .leftJoin(specDoc, and(eq(specDoc.projectId, projectId), eq(specDoc.oid, landedFeature.specOid)))
+    .leftJoin(planDoc, and(eq(planDoc.projectId, projectId), eq(planDoc.oid, landedFeature.planOid)))
+    .leftJoin(tasksDoc, and(eq(tasksDoc.projectId, projectId), eq(tasksDoc.oid, landedFeature.tasksOid)))
+    .where(
+      and(eq(landedFeature.projectId, projectId), dir === undefined ? undefined : eq(landedFeature.dir, dir)),
+    )
+  return rows.map(({ landed: l, spec, plan, tasks }) => ({
+    docs: { spec, plan, tasks },
+    row: {
+      dir: l.dir,
+      firstSeenAt: l.firstSeenAt.getTime(),
+      baseline: l.baseline,
+      addedAt: l.addedAt?.getTime() ?? null,
+      lastChangeAt: l.lastChangeAt?.getTime() ?? null,
+      author: l.authorName ? { name: l.authorName, email: l.authorEmail ?? '' } : null,
+      spec: factsOf(spec),
+      plan: factsOf(plan),
+      tasks: factsOf(tasks),
+    } satisfies FinishedRow,
+  }))
+}
+
+export async function loadBoard(db: Db, projectId: string, now = Date.now()): Promise<Board> {
+  const [versionRows, landedRows, members, [proj]] = await Promise.all([
+    loadVersionRows(db, projectId),
+    db.select().from(landedFeature).where(eq(landedFeature.projectId, projectId)),
+    loadMembers(db, projectId),
     db.select({ numbering: project.numbering }).from(project).where(eq(project.id, projectId)),
   ])
   if (!proj) throw new Error(`project ${projectId} not found`)
@@ -191,30 +264,70 @@ export async function loadBoard(db: Db, projectId: string, now = Date.now()): Pr
     firstSeenAt: r.firstSeenAt.getTime(),
     baseline: r.baseline,
   }))
-  // A commit email is self-declared by the reporter, so it never overrides a GitHub account email
-  // and counts only when exactly one member's clones claim it (else anyone could take others' features).
-  const accountEmails = new Set(memberRows.map((m) => m.email.toLowerCase()))
-  const memberIds = new Set(memberRows.map((m) => m.userId))
-  const claimants = new Map<string, Set<string>>()
-  for (const e of emailRows) {
-    if (!memberIds.has(e.userId)) continue
-    const email = e.email.toLowerCase()
-    const set = claimants.get(email) ?? new Set<string>()
-    set.add(e.userId)
-    claimants.set(email, set)
-  }
-  const commitEmailsOf = (userId: string) =>
-    [...claimants]
-      .filter(([email, users]) => users.has(userId) && users.size === 1 && !accountEmails.has(email))
-      .map(([email]) => email)
-  const members: MemberIdentity[] = memberRows.map((m) => ({
-    userId: m.userId,
-    githubLogin: m.githubLogin,
-    name: m.name,
-    image: m.image,
-    emails: [...new Set([m.email.toLowerCase(), ...commitEmailsOf(m.userId)])].filter((e) => e !== ''),
-  }))
   return buildBoard({ versions, landed, members, numbering: proj.numbering, now })
+}
+
+const activeDirsOf = (board: Board) => new Set([...board.inFlight, ...board.stale].map((e) => e.dir))
+
+export async function loadFinished(
+  db: Db,
+  projectId: string,
+): Promise<{ defaultBranch: string; finished: FinishedFeature[]; members: BoardMember[] }> {
+  const [[proj], landed, members, board] = await Promise.all([
+    db
+      .select({ numbering: project.numbering, defaultBranch: project.defaultBranch })
+      .from(project)
+      .where(eq(project.id, projectId)),
+    loadLandedRows(db, projectId),
+    loadMembers(db, projectId),
+    loadBoard(db, projectId),
+  ])
+  if (!proj) throw new Error(`project ${projectId} not found`)
+  return {
+    defaultBranch: proj.defaultBranch,
+    finished: buildFinished(
+      landed.map((l) => l.row),
+      members,
+      proj.numbering,
+      activeDirsOf(board),
+    ),
+    members: members.map(({ emails: _, ...m }) => m),
+  }
+}
+
+// Loads the contents of the given documents; a missing row, or one without a stored oid, is no document.
+async function shownDocs(
+  db: Db,
+  projectId: string,
+  branch: string,
+  docs: Record<DocKind, DocRow | null>,
+): Promise<ShownVersion> {
+  const oids = KINDS.map((k) => docs[k]?.oid ?? null).filter((o): o is string => o !== null)
+  const contents =
+    oids.length === 0
+      ? []
+      : await db
+          .select({ oid: document.oid, content: document.content })
+          .from(document)
+          .where(and(eq(document.projectId, projectId), inArray(document.oid, oids), isNotNull(document.oid)))
+  const contentByOid = new Map(contents.map((c) => [c.oid, c.content]))
+  const shown = {} as Record<DocKind, ShownDoc | null>
+  for (const k of KINDS) {
+    const row = docs[k]
+    const facts = factsOf(row)
+    shown[k] =
+      !row || row.oid === null || row.size === null || !facts
+        ? null
+        : {
+            oid: row.oid,
+            size: row.size,
+            content: facts.tooLarge ? null : (contentByOid.get(row.oid) ?? null),
+            tooLarge: facts.tooLarge,
+            unreadable: facts.unreadable,
+            facts,
+          }
+  }
+  return { branch, docs: shown }
 }
 
 export async function loadFeature(
@@ -225,7 +338,7 @@ export async function loadFeature(
 ): Promise<FeatureDetail | null> {
   // the board's order and activity rule, so the detail page shows the board's version and dates
   const [proj] = await db
-    .select({ numbering: project.numbering })
+    .select({ numbering: project.numbering, defaultBranch: project.defaultBranch })
     .from(project)
     .where(eq(project.id, projectId))
   if (!proj) return null
@@ -233,53 +346,30 @@ export async function loadFeature(
     .filter((v) => v.dir === dir)
     .map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) }))
     .sort(compareVersions)
-  const [landedRow] = await db
-    .select()
-    .from(landedFeature)
-    .where(and(eq(landedFeature.projectId, projectId), eq(landedFeature.dir, dir)))
-  if (versions.length === 0 && !landedRow) return null
+  const [landed] = await loadLandedRows(db, projectId, dir)
+  if (versions.length === 0 && !landed) return null
 
   // Reusing loadBoard for the entry costs a few extra queries; fine at this scale.
-  const board = await loadBoard(db, projectId)
+  const [board, members] = await Promise.all([loadBoard(db, projectId), loadMembers(db, projectId)])
   const entry = [...board.inFlight, ...board.stale].find((e) => e.dir === dir) ?? null
 
   const shownVersion = (branch ? versions.find((v) => v.branch === branch) : undefined) ?? versions[0]
+  // The default branch's documents are known once its facts were reported.
+  const showDefault = landed?.row.addedAt != null && (branch === proj.defaultBranch || versions.length === 0)
   let shown: ShownVersion | null = null
-  if (shownVersion) {
-    const oids = KINDS.map((k) => shownVersion.docs[k]?.oid ?? null).filter((o): o is string => o !== null)
-    const contents =
-      oids.length === 0
-        ? []
-        : await db
-            .select({ oid: document.oid, content: document.content })
-            .from(document)
-            .where(
-              and(eq(document.projectId, projectId), inArray(document.oid, oids), isNotNull(document.oid)),
-            )
-    const contentByOid = new Map(contents.map((c) => [c.oid, c.content]))
-    const docs = {} as Record<DocKind, ShownDoc | null>
-    for (const k of KINDS) {
-      const row = shownVersion.docs[k]
-      const facts = factsOf(row)
-      docs[k] =
-        !row || row.oid === null || row.size === null || !facts
-          ? null
-          : {
-              oid: row.oid,
-              size: row.size,
-              content: facts.tooLarge ? null : (contentByOid.get(row.oid) ?? null),
-              tooLarge: facts.tooLarge,
-              unreadable: facts.unreadable,
-              facts,
-            }
-    }
-    shown = { branch: shownVersion.branch, docs }
-  }
+  if (showDefault && landed) shown = await shownDocs(db, projectId, proj.defaultBranch, landed.docs)
+  else if (shownVersion) shown = await shownDocs(db, projectId, shownVersion.branch, shownVersion.docs)
 
   return {
     entry,
-    landed: landedRow
-      ? { dir: landedRow.dir, firstSeenAt: landedRow.firstSeenAt.getTime(), baseline: landedRow.baseline }
+    landed: landed
+      ? {
+          dir: landed.row.dir,
+          firstSeenAt: landed.row.firstSeenAt,
+          baseline: landed.row.baseline,
+          branch: proj.defaultBranch,
+          finished: finishedFeature(landed.row, members, proj.numbering, activeDirsOf(board)),
+        }
       : null,
     versions: versions.map((v) => ({
       branch: v.branch,

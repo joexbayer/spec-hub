@@ -5,7 +5,7 @@ import type { AppEnv } from '../app-env.ts'
 import { requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
 import { clone, membership } from '../db/schema.ts'
-import { loadBoard, loadFeature } from '../services/board-query.ts'
+import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
 import { zv } from '../validate.ts'
 
 const guard = [requireSession, requireProjectRole()] as const
@@ -32,6 +32,7 @@ export const boardRoutes = new Hono<AppEnv>()
     for (const r of reports) if (r.at) lastReportAt[r.userId] = r.at.getTime()
     return c.json({ board, lastReportAt })
   })
+  .get('/projects/:slug/finished', ...guard, async (c) => c.json(await loadFinished(db, c.var.project.id)))
   .get(
     '/projects/:slug/features/:dir',
     ...guard,
