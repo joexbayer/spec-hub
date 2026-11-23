@@ -276,3 +276,17 @@ describe('formatFinished', () => {
     expect(out).toContain('Finished in acme (2):')
   })
 })
+
+describe('remote branches', () => {
+  const remote = entry('152-x', {
+    branches: [{ branch: '152-x', pushed: true, lastChangeAt: NOW - 3 * HOUR, carrierUserId: null }],
+  })
+
+  it('board and feature say the branch was seen on the shared remote', () => {
+    const b = board({ inFlight: [remote] })
+    expect(formatBoard('p', b, NOW)).toContain('152-x (seen on the shared remote)')
+    const out = formatFeature({ entry: remote, landed: null, versions: [], shown: null }, b, NOW)
+    expect(out).toContain('Branch 152-x: seen on the shared remote, last change 3h ago')
+    expect(out).not.toContain('carried by')
+  })
+})

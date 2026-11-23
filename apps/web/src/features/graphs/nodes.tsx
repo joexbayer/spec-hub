@@ -4,7 +4,7 @@ import type { BoardEntry, LandedFeature, Owner } from '@spec-hub/core'
 import { phaseLabel, titleFromDir } from '@spec-hub/core'
 import { Handle, type Node, type NodeProps, Position } from '@xyflow/react'
 import { formatDistanceToNow } from 'date-fns'
-import { CheckCircle2, Cloud, CloudOff, GitBranch } from 'lucide-react'
+import { CheckCircle2, Cloud, CloudOff, GitBranch, Users } from 'lucide-react'
 import { FeatureCard } from '@/components/feature-card'
 import { OwnerAvatar, ownerName } from '@/components/person-chip'
 import { PHASE_DOT } from '@/components/phase-badge'
@@ -123,7 +123,7 @@ export function ColumnNode({ data }: NodeProps<Node<ColumnNodeData>>) {
 export function PersonNode({
   data,
   selected,
-}: NodeProps<Node<{ owner: Owner; lastReportAt?: number; count: number }>>) {
+}: NodeProps<Node<{ owner: Owner; lastReportAt?: number; count: number; shared?: boolean }>>) {
   return (
     <div
       className={cn(
@@ -132,9 +132,17 @@ export function PersonNode({
       )}
     >
       <Handles />
-      <OwnerAvatar owner={data.owner} size="default" />
+      {data.shared ? (
+        <span className="grid size-8 shrink-0 place-items-center rounded-full border bg-muted text-muted-foreground">
+          <Users aria-hidden className="size-4" />
+        </span>
+      ) : (
+        <OwnerAvatar owner={data.owner} size="default" />
+      )}
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="truncate text-sm font-medium">{ownerName(data.owner)}</div>
+        <div className="truncate text-sm font-medium">
+          {data.shared ? 'Shared remote' : ownerName(data.owner)}
+        </div>
         <div className="truncate text-xs text-muted-foreground">
           {data.lastReportAt !== undefined
             ? `reported ${formatDistanceToNow(data.lastReportAt, { addSuffix: true })}`

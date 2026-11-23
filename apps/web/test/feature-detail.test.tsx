@@ -151,6 +151,26 @@ describe('FeaturePage with a finished feature', () => {
     expect(onBranchChange).toHaveBeenCalledWith('main')
   })
 
+  it('labels a version seen on the shared remote and does not count it as a carrier', async () => {
+    const version = {
+      branch: '001-a',
+      carrierUserId: null,
+      pushed: true,
+      lastChangeAt: 5,
+      spec: null,
+      plan: null,
+      tasks: null,
+    }
+    renderPage({
+      entry: null,
+      landed,
+      versions: [version],
+      shown: { branch: '001-a', extra: [], docs: { spec: null, plan: null, tasks: null } },
+    })
+    expect(await screen.findByText('Seen on the shared remote')).toBeTruthy()
+    expect(screen.getByText(/0 people carry it/)).toBeTruthy()
+  })
+
   it('renders a finished-only feature with badge, owner and title', async () => {
     renderPage({
       entry: null,

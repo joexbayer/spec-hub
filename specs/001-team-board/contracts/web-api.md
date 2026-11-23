@@ -5,6 +5,8 @@ routes are chained so their types are inferred (R1, R12).
 
 Spec 005 adds `GET /api/projects/:slug/finished` and the default-branch version on `GET /api/projects/:slug/features/:dir`: see [005's web contract](../../005-finished-features/contracts/web.md).
 
+Spec 004 adds `sharePushedBranches`, the branch `remote` flag, the content-based carry check and nullable carriers: see [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md).
+
 - **Auth**: Better Auth session cookie.
 - **Mutations**: also require a same-origin `Origin` header (Hono `csrf()`).
 - **Validation**: every body and parameter is validated with zod.
@@ -22,7 +24,7 @@ Spec 005 adds `GET /api/projects/:slug/finished` and the default-branch version 
 | `GET,POST /api/auth/*` | anyone | Better Auth: GitHub sign-in, session, sign-out. `/api/auth/api-key/*` returns **404**: tokens are managed only below, so every change is audited. |
 | `GET /api/me` | signed in | `{ user: { id, githubLogin, name, image }, isHubAdmin, waiting, projects: [{ slug, name, role }] }`. `waiting` is `!isHubAdmin && projects.length === 0`. |
 | `GET /api/people` | hub admin, or admin of at least one project | Everyone who has signed in: `[{ id, githubLogin, name, image, waiting, lastSignInAt }]`, by login. Suggestions for the username field when assigning. |
-| `GET /api/projects/:slug/board` | member | Board entries (each with its `dependsOn`, branches and their carriers' identities), the recently landed and stale groups, and collisions. Computed by `buildBoard`. The pipeline, work map and dependency map are derived from this one response in the browser by the same `packages/core` functions (FR-039). Polled every 10 s (R7). |
+| `GET /api/projects/:slug/board` | member | Board entries (each with its `dependsOn`, branches and their carriers' identities), the recently landed and stale groups, and collisions. Computed by `buildBoard`. The response also has `lastReportAt`, `pending` (logins added by an admin who have not signed in yet) and `defaultBranch`. The pipeline, work map and dependency map are derived from this one response in the browser by the same `packages/core` functions (FR-039). Polled every 10 s (R7). |
 | `GET /api/projects/:slug/features/:dir` | member | One feature: every carrying branch, plus document content and facts for the version shown. `?branch=` picks another version. |
 | `GET /api/tokens` | signed in | The caller's tokens: id, name, start, created, last used. Never the key. |
 | `POST /api/tokens` `{ name }` | signed in, not waiting | Creates a token with `hub: [report, read]`. Returns the plaintext **once**. Audited. A waiting person gets **403** `{ error: 'waiting for access' }`. |

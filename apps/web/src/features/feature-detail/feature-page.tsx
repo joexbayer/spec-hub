@@ -196,13 +196,16 @@ export function FeaturePage({
     : (entry?.lastChangeAt ?? Math.max(0, ...versions.map((v) => v.lastChangeAt)))
   const openClarifications = entry?.openClarifications ?? 0
   const choices = [
-    ...versions.map((v) => ({ branch: v.branch, label: v.branch })),
+    ...versions.map((v) => ({
+      branch: v.branch,
+      label: v.carrierUserId === null ? `${v.branch} (seen on the shared remote)` : v.branch,
+    })),
     ...(landed?.finished.reported && !versions.some((v) => v.branch === landed.branch)
       ? [{ branch: landed.branch, label: `${landed.branch} (landed)` }]
       : []),
   ]
   const documentsNotReported = landed !== null && !landed.finished.reported && versions.length === 0
-  const carriers = [...new Set(versions.map((v) => v.carrierUserId))]
+  const carriers = [...new Set(versions.flatMap((v) => (v.carrierUserId === null ? [] : [v.carrierUserId])))]
   const owner = entry?.owner ?? fin?.owner ?? UNKNOWN_OWNER
   const ownerId = owner.kind === 'member' ? owner.userId : null
   const carrying = (id: string) => {
@@ -283,6 +286,13 @@ export function FeaturePage({
               ))
             )}
             <TooltipProvider>
+              {current?.carrierUserId === null ? (
+                <StateBadge
+                  icon={<Users />}
+                  text="Seen on the shared remote"
+                  className="border-dashed text-muted-foreground"
+                />
+              ) : null}
               {current && !current.pushed ? (
                 <StateBadge
                   icon={<CloudOff />}

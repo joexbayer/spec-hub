@@ -110,6 +110,22 @@ describe('reporter ingestion', () => {
     })
   })
 
+  it('stores the remote flag and returns sharePushedBranches from config', async () => {
+    const { p, auth, report } = await setup()
+    const config = async () =>
+      (await (await request('/api/r/acme/config', { headers: auth })).json()) as {
+        sharePushedBranches: boolean
+      }
+    expect((await config()).sharePushedBranches).toBe(false)
+    await db.update(project).set({ sharePushedBranches: true }).where(eq(project.id, p.id))
+    expect((await config()).sharePushedBranches).toBe(true)
+    const m = manifest(crypto.randomUUID(), 100, [{ name: 'local' }, { name: 'theirs' }])
+    m.branches[1] = { ...m.branches[1], remote: true } as (typeof m.branches)[number]
+    expect((await report(m)).status).toBe(200)
+    const rows = await db.select().from(cloneBranch)
+    expect(Object.fromEntries(rows.map((r) => [r.name, r.remote]))).toEqual({ local: false, theirs: true })
+  })
+
   it('asks for missing docs, stores them idempotently, then accepts and parses facts', async () => {
     const { alice, p, report, put } = await setup()
     const cloneId = crypto.randomUUID()

@@ -31,6 +31,7 @@ describe('projects', () => {
     const p = (await res.json()) as { id: string; defaultBranch: string; numbering: string }
     expect(p.defaultBranch).toBe('main')
     expect(p.numbering).toBe('sequential')
+    expect(p).toMatchObject({ sharePushedBranches: false })
     const [m] = await db.select().from(membership).where(eq(membership.projectId, p.id))
     expect(m).toMatchObject({ userId: hub.id, role: 'admin' })
     const events = await db.select().from(securityEvent).where(eq(securityEvent.type, 'project_created'))
@@ -167,5 +168,24 @@ describe('GET /api/me', () => {
         { slug: 'b', name: 'Beta', role: 'admin' },
       ],
     })
+  })
+})
+
+describe('sharePushedBranches', () => {
+  it('is toggled by a project admin and refused for a member', async () => {
+    const admin = await createUser('ann')
+    const member = await createUser('bob')
+    const p = await createProject('acme')
+    await addMember(p, admin, 'admin')
+    await addMember(p, member)
+    const on = { sharePushedBranches: true }
+    expect(
+      (await jsonRequest('/api/projects/acme', 'PATCH', on, { cookie: await sessionCookie(member) })).status,
+    ).toBe(403)
+    const res = await jsonRequest('/api/projects/acme', 'PATCH', on, { cookie: await sessionCookie(admin) })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject(on)
+    const [row] = await db.select().from(project).where(eq(project.id, p.id))
+    expect(row?.sharePushedBranches).toBe(true)
   })
 })

@@ -259,7 +259,8 @@ describe('reporter hardening (verify round A)', () => {
     expect(await carried('010-more')).toEqual(['009-rb'])
     expect(await carried('011-copy')).toEqual(['009-rb'])
     expect((await repo.connect('unused')).stdout).toMatch(/: 1 features in flight\.$/m)
-  })
+    // ~18 s alone (several hub round trips); the full suite's load pushed it past the 20 s default
+  }, 60_000)
 
   it('records a clear error when the clone id belongs to someone else', async () => {
     const { repo, sb } = await connectedClone()

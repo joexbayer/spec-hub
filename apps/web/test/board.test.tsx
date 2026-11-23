@@ -103,3 +103,17 @@ test('a recently landed row opens the default branch version when known', () => 
   )
   expect(screen.getByText('Delta').closest('a')?.getAttribute('href')).toBe('/p/demo/f/004-delta?branch=main')
 })
+
+test('the team panel shows who has not connected and who has not signed in yet', () => {
+  render(
+    <SideRail
+      slug="demo"
+      board={{ ...board, members: [{ userId: 'u1', githubLogin: 'ana', name: 'Ana', image: null }] }}
+      lastReportAt={{}}
+      pending={['later']}
+    />,
+  )
+  expect(screen.getByText('Not connected yet')).toBeTruthy()
+  expect(screen.getByText('@later')).toBeTruthy()
+  expect(screen.getByText("Added, hasn't signed in yet")).toBeTruthy()
+})

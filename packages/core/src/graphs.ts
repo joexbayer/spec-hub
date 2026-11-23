@@ -238,7 +238,8 @@ export function buildPipeline(board: Board): Pipeline {
 }
 
 export interface WorkMap {
-  people: { userId: string; owner: Owner; branchIds: string[] }[]
+  /** `shared`: the one node for branches seen on the shared remote, not a person. */
+  people: { userId: string; owner: Owner; branchIds: string[]; shared?: true }[]
   branches: {
     id: string
     userId: string
@@ -256,12 +257,13 @@ export function buildWorkMap(board: Board): WorkMap {
   const edges: WorkMap['edges'] = []
   for (const e of board.inFlight) {
     for (const ref of e.branches) {
-      const id = `branch:${ref.carrierUserId}:${ref.branch}`
+      const carrier = ref.carrierUserId ?? 'remote'
+      const id = `branch:${carrier}:${ref.branch}`
       let b = branches.get(id)
       if (!b) {
         b = {
           id,
-          userId: ref.carrierUserId,
+          userId: carrier,
           branch: ref.branch,
           pushed: true,
           lastChangeAt: ref.lastChangeAt,
@@ -287,11 +289,12 @@ export function buildWorkMap(board: Board): WorkMap {
   for (const b of branchList) {
     let p = people.get(b.userId)
     if (!p) {
-      const m = board.members.find((x) => x.userId === b.userId)
+      const shared = b.userId === 'remote'
+      const m = shared ? undefined : board.members.find((x) => x.userId === b.userId)
       const owner: Owner = m
         ? { kind: 'member', userId: m.userId, githubLogin: m.githubLogin, name: m.name, image: m.image }
         : { kind: 'unknown' }
-      p = { userId: b.userId, owner, branchIds: [] }
+      p = { userId: b.userId, owner, branchIds: [], ...(shared && { shared: true as const }) }
       people.set(b.userId, p)
     }
     edges.push({ from: `person:${b.userId}`, to: b.id })

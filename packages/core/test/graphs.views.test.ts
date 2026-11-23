@@ -26,7 +26,7 @@ const member = (userId: string, githubLogin: string): MemberIdentity => ({
   image: null,
   emails: [],
 })
-const ref = (carrierUserId: string, branch: string, over: Partial<BranchRef> = {}): BranchRef => ({
+const ref = (carrierUserId: string | null, branch: string, over: Partial<BranchRef> = {}): BranchRef => ({
   branch,
   pushed: true,
   lastChangeAt: NOW,
@@ -40,6 +40,18 @@ const board = (inFlight: BoardEntry[], over: Partial<Board> = {}): Board => ({
   landedDirs: [],
   members: [],
   ...over,
+})
+
+describe('buildWorkMap remote', () => {
+  it('puts a null-carrier branch under the shared remote node, never a member', () => {
+    const w = buildWorkMap(
+      board([entry('f1', { branches: [ref(null, 'x')] })], { members: [member('u1', 'alice')] }),
+    )
+    expect(w.people).toEqual([
+      { userId: 'remote', owner: { kind: 'unknown' }, branchIds: ['branch:remote:x'], shared: true },
+    ])
+    expect(w.edges).toContainEqual({ from: 'person:remote', to: 'branch:remote:x' })
+  })
 })
 
 describe('buildPipeline', () => {

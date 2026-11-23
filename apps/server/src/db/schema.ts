@@ -34,6 +34,8 @@ export const project = pgTable('project', {
   // The default-branch commit (and its time) of the newest stored listing with documents (specs/005-finished-features).
   finishedTip: text('finished_tip'),
   finishedTipAt: timestamp('finished_tip_at', { withTimezone: true }),
+  // Connected clones also report teammates' pushed branches (specs/004-pushed-branch-sharing).
+  sharePushedBranches: boolean('share_pushed_branches').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -84,6 +86,8 @@ export const cloneBranch = pgTable(
     tip: text('tip').notNull(),
     tipAt: timestamp('tip_at', { withTimezone: true }).notNull(),
     pushed: boolean('pushed').notNull(),
+    // Seen on the shared remote, not a local branch of the reporting clone.
+    remote: boolean('remote').notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.cloneId, t.name] })],
 )

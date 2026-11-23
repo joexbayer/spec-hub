@@ -49,6 +49,8 @@ export function nodeSize(n: Node): { width: number; height: number } {
   return { width: CARD_W, height: CARD_H }
 }
 
+export const landedNodeId = (dir: string) => `landed:${dir}`
+
 // Fixed columns: one lane per column, cards stacked in the order given (caller passes newest first).
 export function pipelineLayout(
   columns: readonly PipelineColumn[],
@@ -76,8 +78,14 @@ export function pipelineLayout(
       data: { entry, blocked: false, blockedBy: [] },
     })
   }
+  // A landed feature can be in flight again (a later branch changes it), so its card needs its own id.
   for (const landed of recentlyLanded) {
-    place('landed', { id: landed.dir, type: 'landed', ariaLabel: `${landed.dir}, landed`, data: { landed } })
+    place('landed', {
+      id: landedNodeId(landed.dir),
+      type: 'landed',
+      ariaLabel: `${landed.dir}, landed`,
+      data: { landed },
+    })
   }
   // Every lane is as tall as the fullest one, so the board reads as one grid.
   const height = Math.max(HEADER_H + GAP + CARD_H, ...next.values()) - GAP
@@ -89,6 +97,8 @@ export function pipelineLayout(
     selectable: false,
     draggable: false,
     focusable: false,
+    // Below the edge layer, so dependency lines between lanes stay visible across them.
+    zIndex: -1,
     width: CARD_W,
     height,
   }))

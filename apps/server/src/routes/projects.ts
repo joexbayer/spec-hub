@@ -1,6 +1,7 @@
 import { numbering, projectFields, projectSettings, refName } from '@spec-hub/core'
 import { eq, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv } from '../app-env.ts'
 import { requireHubAdmin, requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
@@ -11,6 +12,7 @@ import { zv } from '../validate.ts'
 const createBody = projectFields.extend({
   defaultBranch: refName.default('main'),
   numbering: numbering.default('sequential'),
+  sharePushedBranches: z.boolean().default(false),
 })
 const patchBody = projectSettings
   .partial()
@@ -49,8 +51,8 @@ export const projectRoutes = new Hono<AppEnv>()
     }
   })
   .get('/projects/:slug', requireSession, requireProjectRole(), (c) => {
-    const { slug, name, defaultBranch, numbering, createdAt } = c.var.project
-    return c.json({ slug, name, defaultBranch, numbering, createdAt })
+    const { slug, name, defaultBranch, numbering, sharePushedBranches, createdAt } = c.var.project
+    return c.json({ slug, name, defaultBranch, numbering, sharePushedBranches, createdAt })
   })
   .patch('/projects/:slug', requireSession, requireProjectRole('admin'), zv('json', patchBody), async (c) => {
     const body = c.req.valid('json')
@@ -83,6 +85,7 @@ export const projectRoutes = new Hono<AppEnv>()
         name: project.name,
         defaultBranch: project.defaultBranch,
         numbering: project.numbering,
+        sharePushedBranches: project.sharePushedBranches,
         createdAt: project.createdAt,
         // Drizzle leaves columns unqualified in a single-table select, so a bare ${project.id} here
         // would bind to the subquery's own "id"; the outer project is named explicitly.

@@ -53,7 +53,12 @@ export function formatBoard(projectSlug: string, board: Board, now = Date.now())
     const branches = newest
       ? `${oneLine(newest.branch)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`
       : ''
-    const unpushed = e.branches.every((b) => !b.pushed) ? ' (not pushed)' : ''
+    const unpushed =
+      newest?.carrierUserId === null
+        ? ' (seen on the shared remote)'
+        : e.branches.every((b) => !b.pushed)
+          ? ' (not pushed)'
+          : ''
     const marks: string[] = []
     const blockers = graph.blockedBy.get(e.dir)
     if (blockers) marks.push(`⛔ blocked by ${dirs(blockers)}`)
@@ -141,6 +146,12 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
     lines.push(`Phase: ${phaseLabel(entry.phase)}${open}`)
     const branches = newestFirst(entry.branches)
     for (const b of branches.slice(0, MAX_FEATURE_BRANCHES)) {
+      if (b.carrierUserId === null) {
+        lines.push(
+          `Branch ${oneLine(b.branch)}: seen on the shared remote, last change ${age(b.lastChangeAt, now)}`,
+        )
+        continue
+      }
       const carrier = board.members.find((m) => m.userId === b.carrierUserId)
       lines.push(
         `Branch ${oneLine(b.branch)}: carried by ${carrier ? `@${oneLine(carrier.githubLogin)}` : 'unknown'}, ${b.pushed ? 'pushed' : 'not pushed'}, last change ${age(b.lastChangeAt, now)}`,

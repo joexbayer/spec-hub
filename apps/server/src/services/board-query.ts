@@ -8,7 +8,14 @@ import type {
   LandedFeature,
   MemberIdentity,
 } from '@spec-hub/core'
-import { activityAt, buildBoard, buildFinished, compareVersions, finishedFeature } from '@spec-hub/core'
+import {
+  activityAt,
+  buildBoard,
+  buildFinished,
+  compareVersions,
+  dropRemoteCopies,
+  finishedFeature,
+} from '@spec-hub/core'
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { Db } from '../db/client.ts'
@@ -28,7 +35,7 @@ const KINDS: DocKind[] = ['spec', 'plan', 'tasks']
 
 export interface VersionSummary {
   branch: string
-  carrierUserId: string
+  carrierUserId: string | null
   pushed: boolean
   lastChangeAt: number
   spec: DocFacts | null
@@ -135,6 +142,7 @@ async function loadVersionRows(db: Db, projectId: string) {
       dir: cloneFeature.dir,
       branch: cloneFeature.branch,
       pushed: cloneBranch.pushed,
+      remote: cloneBranch.remote,
       branchTipAt: cloneBranch.tipAt,
       lastChangeAt: cloneFeature.lastChangeAt,
       carrierUserId: clone.userId,
@@ -259,6 +267,7 @@ export async function loadBoard(db: Db, projectId: string, now = Date.now()): Pr
     dir: r.dir,
     branch: r.branch,
     pushed: r.pushed,
+    remote: r.remote,
     lastChangeAt: r.lastChangeAt,
     branchTipAt: r.branchTipAt,
     carrierUserId: r.carrierUserId,
@@ -361,10 +370,11 @@ export async function loadFeature(
     .from(project)
     .where(eq(project.id, projectId))
   if (!proj) return null
-  const versions = (await loadVersionRows(db, projectId))
-    .filter((v) => v.dir === dir)
-    .map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) }))
-    .sort(compareVersions)
+  const versions = dropRemoteCopies(
+    (await loadVersionRows(db, projectId))
+      .filter((v) => v.dir === dir)
+      .map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) })),
+  ).sort(compareVersions)
   const [landed] = await loadLandedRows(db, projectId, dir)
   if (versions.length === 0 && !landed) return null
 
@@ -394,7 +404,7 @@ export async function loadFeature(
       : null,
     versions: versions.map((v) => ({
       branch: v.branch,
-      carrierUserId: v.carrierUserId,
+      carrierUserId: v.remote ? null : v.carrierUserId,
       pushed: v.pushed,
       lastChangeAt: v.lastChangeAt,
       spec: factsOf(v.spec),

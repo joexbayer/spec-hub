@@ -30,6 +30,7 @@ const version = (dir: string, over: Partial<FeatureVersion> = {}): FeatureVersio
   lastChangeAt: NOW - DAY,
   branchTipAt: NOW - DAY,
   carrierUserId: 'u1',
+  remote: false,
   author: null,
   spec: doc(),
   plan: null,
@@ -142,6 +143,43 @@ describe('buildBoard', () => {
     expect(board([a, b]).inFlight[0]?.title).toBe('Ann')
     expect(board([b, a]).inFlight[0]?.title).toBe('Ann')
     expect([a, b].sort(compareVersions)[0]).toBe(b)
+  })
+
+  it('drops a remote copy when a local branch of the same name carries the folder', () => {
+    const local = version('104-d', { branch: 'main', carrierUserId: 'u1' })
+    const remote = version('104-d', { branch: 'main', carrierUserId: 'u2', remote: true, lastChangeAt: NOW })
+    expect(board([remote, local]).inFlight[0]?.branches).toEqual([
+      { branch: 'main', pushed: true, lastChangeAt: NOW - DAY, carrierUserId: 'u1' },
+    ])
+  })
+
+  it('keeps the newest of several remote copies of one branch name', () => {
+    const old = version('104-d', {
+      branch: 'x',
+      carrierUserId: 'u1',
+      remote: true,
+      lastChangeAt: NOW - 3 * DAY,
+    })
+    const fresh = version('104-d', {
+      branch: 'x',
+      carrierUserId: 'u2',
+      remote: true,
+      lastChangeAt: NOW - DAY,
+    })
+    const b = board([old, fresh]).inFlight[0]
+    expect(b?.branches).toEqual([{ branch: 'x', pushed: true, lastChangeAt: NOW - DAY, carrierUserId: null }])
+  })
+
+  it('a remote-only feature has a null carrier and its owner comes from the author, not the carrier', () => {
+    const v = version('104-d', {
+      branch: 'x',
+      carrierUserId: 'u1',
+      remote: true,
+      author: { name: 'Bob', email: 'bob@work.com' },
+    })
+    const e = board([v]).inFlight[0]
+    expect(e?.branches[0]?.carrierUserId).toBeNull()
+    expect(e?.owner).toMatchObject({ kind: 'member', userId: 'u2' })
   })
 
   it('stale after 14 days + 1 ms, not at exactly 14 days', () => {

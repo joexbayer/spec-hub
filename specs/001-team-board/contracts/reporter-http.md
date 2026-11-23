@@ -26,11 +26,15 @@ Response 200:
 
 `finishedTip` (spec 005): see [005's reporter contract](../../005-finished-features/contracts/reporter.md).
 
+`sharePushedBranches` (spec 004): see [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md), which also covers the branch `remote` flag, the content-based carry check and nullable carriers.
+
 ## `POST /reports`
 
 Body limit 1 MiB (FR-010). The body is validated by `ReportManifest` (zod, `packages/core`):
 
 `default.features` (optional, spec 005): the default branch's feature folders with their documents; see [005's reporter contract](../../005-finished-features/contracts/reporter.md).
+
+Branch `remote` flag, remote branches and nullable carriers (spec 004): see [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md).
 
 ```json
 {

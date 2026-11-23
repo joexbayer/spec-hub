@@ -48,6 +48,9 @@ export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureD
                   <GitBranch aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0">
                     <span className="block font-mono text-xs break-all">{v.branch}</span>
+                    {v.carrierUserId === null ? (
+                      <span className="block text-xs text-muted-foreground">Seen on the shared remote</span>
+                    ) : null}
                     {v.branch === detail.shown?.branch ? (
                       <span className="text-xs text-muted-foreground">(shown on the board)</span>
                     ) : null}

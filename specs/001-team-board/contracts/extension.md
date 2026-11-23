@@ -92,10 +92,11 @@ when it finds `pending`. A lock older than 10 minutes is left by a crash and is 
   `pushed` is true when the tip is contained in some `refs/remotes/<remote>/*`.
 - Features of a branch: the `specs/<dir>/` that the branch changed since it left the default branch
   (`git diff <base>...<ref>`) and whose tree still differs from the default branch's. A dir that is
-  also on the default branch is kept only when a commit of the branch touching it has no
-  patch-identical commit on the default branch (`git log --cherry-pick --right-only --no-merges
-  <base>...<ref> -- specs/`), so a branch that landed by rebase-merge or cherry-pick carries nothing
-  even after the default branch edits the spec again. At most 200 features per branch.
+  also on the default branch is kept only when one of its documents (spec, plan, tasks, configured
+  extras) on the branch is a version the default branch never had (by path and blob id over
+  `git log --raw` of the default branch). At most 200 features per branch. For `sharePushedBranches`,
+  the branch `remote` flag, the content-based carry check and nullable carriers, see
+  [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md).
 - When the repository has a remote but `refs/remotes/<remote>/<default>` is missing, nothing is sent
   and the error `<remote>/<default> not found; check the project's default branch on the hub (it is
   <default>)` is recorded. Only a repository with no remote at all reports every branch with every

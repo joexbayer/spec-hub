@@ -66,6 +66,7 @@ const Branch = z
     tip: Oid,
     tipAt: UnixTime,
     pushed: z.boolean(),
+    remote: z.literal(true).optional(),
     features: z.array(Feature).max(200),
   })
   .strict()

@@ -98,7 +98,9 @@ only**:
      icon tile and a link to the feature.
    - **Recently landed**: a list like the kit's "Recent payments".
    - **Team**: each member with an avatar, an in-flight count bar and the time of their last
-     report, or "Not connected yet", so a member who hasn't connected is visible.
+     report, or "Not connected yet", so a member who hasn't connected is visible. Members an admin
+     added who haven't signed in yet follow, as "Added, hasn't signed in yet" (the board API returns
+     their logins as `pending`), so a quiet board never hides who is missing.
 
 ### Dependency map — `/p/$slug/map` (User Story 6; reference: `project-management/dashboard-4` "Project Dependency Map")
 

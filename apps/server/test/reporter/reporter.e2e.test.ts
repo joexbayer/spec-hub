@@ -7,6 +7,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
 import { apikey, cloneBranch, cloneFeature, document, landedFeature, project } from '../../src/db/schema.ts'
+import { loadBoard } from '../../src/services/board-query.ts'
 import { addMember, createProject, createToken, createUser, truncateAll } from '../helpers.ts'
 import { CONFIG, type Hub, Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
 
@@ -739,5 +740,333 @@ describe('default branch listing (finished features)', () => {
 
     const extra = branchFeature((await printManifest(repo)).manifest, '009-z', '009-z')?.extra
     expect(extra?.map((e) => e.name)).toEqual(['preview.md'])
+  })
+})
+
+describe('carry check by content (FR-014 of 004)', () => {
+  /** git with hooks off, so no background report races the history being built. */
+  const quiet = (repo: Repo, ...args: string[]) => {
+    const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args])
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+    return r.stdout
+  }
+  const commitAll = (repo: Repo, message: string) => {
+    quiet(repo, 'add', '-A', 'specs')
+    quiet(repo, 'commit', '-q', '-m', message)
+  }
+  const carried = async (repo: Repo, branch: string) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    const m = JSON.parse(r.stdout) as { branches: { name: string; features: { dir: string }[] }[] }
+    return m.branches.find((b) => b.name === branch)?.features.map((f) => f.dir)
+  }
+
+  it('a deploy branch that takes an older main tree carries nothing', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'branch', 'deploy')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'add 001')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv2\n`)
+    commitAll(repo, 'edit 001')
+    const old = quiet(repo, 'rev-parse', 'HEAD').trim()
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv3\n`)
+    commitAll(repo, 'edit 001 again')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+
+    // "take main's tree at <old>": one commit, not a merge, so no main commit has its patch
+    quiet(repo, 'checkout', '-q', 'deploy')
+    quiet(repo, 'checkout', old, '--', '.')
+    quiet(repo, 'commit', '-q', '-m', `take main's tree at ${old}`)
+    expect(quiet(repo, 'show', 'deploy:specs/001-a/spec.md')).toBe(`${SPEC}\nv2\n`)
+    expect(await carried(repo, 'deploy')).toEqual([])
+  })
+
+  it('a branch kept after its squash merge carries nothing, even after main edits the spec', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'checkout', '-q', '-b', '002-b')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'spec')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1, reviewed\n`)
+    commitAll(repo, 'review')
+    quiet(repo, 'checkout', '-q', 'main')
+    quiet(repo, 'merge', '-q', '--squash', '002-b')
+    quiet(repo, 'commit', '-q', '-m', '002-b (#1)')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1, reviewed\n\n**Status**: Shipped\n`)
+    commitAll(repo, 'status')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+    expect(await carried(repo, '002-b')).toEqual([])
+  })
+
+  it('a branch kept after its squash merge carries nothing once main renamed the folder', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'checkout', '-q', '-b', '060-sq')
+    repo.write('specs/060-sq/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'spec')
+    repo.write('specs/060-sq/spec.md', `${SPEC}\nv1, reviewed\n`)
+    commitAll(repo, 'review')
+    quiet(repo, 'checkout', '-q', 'main')
+    quiet(repo, 'merge', '-q', '--squash', '060-sq')
+    quiet(repo, 'commit', '-q', '-m', '060-sq (#1)')
+    quiet(repo, 'mv', 'specs/060-sq', 'specs/061-sq')
+    quiet(repo, 'commit', '-q', '-m', 'renumber 060 to 061')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+    quiet(repo, 'checkout', '-q', '-b', '062-new')
+    repo.write('specs/062-new/spec.md', SPEC)
+    commitAll(repo, 'brand-new folder')
+    expect(await carried(repo, '060-sq')).toEqual([])
+    expect(await carried(repo, '062-new')).toEqual(['062-new'])
+  })
+
+  it('a branch with new text for a landed feature carries it', async () => {
+    const { repo } = await connectedClone({ initialFiles: { 'specs/001-a/spec.md': SPEC } })
+    quiet(repo, 'checkout', '-q', '-b', '003-c')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nNew requirement.\n`)
+    commitAll(repo, 'change landed 001')
+    expect(await carried(repo, '003-c')).toEqual(['001-a'])
+  })
+
+  it('new text in a configured extra document alone carries a landed feature', async () => {
+    const { repo } = await connectedClone({
+      initialFiles: { 'specs/001-a/spec.md': SPEC, 'specs/001-a/preview.md': '# Preview\n' },
+    })
+    writeFileSync(
+      join(repo.dir, CONFIG),
+      `${readFileSync(join(repo.dir, CONFIG), 'utf8')}documents: preview.md\n`,
+    )
+    quiet(repo, 'checkout', '-q', '-b', '004-d')
+    repo.write('specs/001-a/preview.md', '# Preview\n\nNew screen.\n')
+    commitAll(repo, 'preview for 001')
+    expect(await carried(repo, '004-d')).toEqual(['001-a'])
+  })
+})
+
+describe('share pushed branches (004)', () => {
+  type Manifest = {
+    branches: { name: string; tip: string; pushed: boolean; remote?: true; features: { dir: string }[] }[]
+  }
+  const print = async (repo: Repo) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    return { text: r.stdout, manifest: JSON.parse(r.stdout) as Manifest }
+  }
+  const named = (m: Manifest, name: string) => m.branches.filter((b) => b.name === name)
+  const share = (projectId: string) =>
+    db.update(project).set({ sharePushedBranches: true }).where(eq(project.id, projectId))
+  const cacheFile = (repo: Repo) => join(repo.commonDir(), 'spec-hub', 'remote-cache')
+
+  /** A teammate's clone of the same origin (never connected), committing as Anders Mate. */
+  function teammate(sb: Sandbox): Repo {
+    const dir = join(sb.root, 'mate')
+    sb.git(sb.root, 'clone', '-q', join(sb.root, 'clone-origin.git'), dir)
+    sb.git(dir, 'config', 'user.name', 'Anders Mate')
+    sb.git(dir, 'config', 'user.email', 'anders@example.test')
+    return new Repo(sb, dir)
+  }
+
+  /** The teammate commits `text` as specs/<dir>/spec.md on `branch` (new from main unless it exists) and pushes. */
+  function push(mate: Repo, branch: string, dir: string, text = SPEC, env: NodeJS.ProcessEnv = {}): string {
+    const exists =
+      mate.sb.run(mate.dir, 'git', ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]).status === 0
+    mate.git('checkout', '-q', ...(exists ? [branch] : ['-b', branch, 'origin/main']))
+    mate.write(`specs/${dir}/spec.md`, text)
+    mate.git('add', 'specs')
+    const r = mate.sb.run(mate.dir, 'git', ['commit', '-q', '-m', `spec ${dir}`], { env })
+    if (r.status !== 0) throw new Error(`commit failed: ${r.stderr}`)
+    mate.git('push', '-q', 'origin', branch)
+    return mate.git('rev-parse', 'HEAD').trim()
+  }
+
+  /** git in the connected clone with hooks off, so no background report races the test. */
+  const quiet = (repo: Repo, ...args: string[]) => {
+    const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args])
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+    return r.stdout
+  }
+
+  it('with the option off, a teammate’s pushed branch is not reported and no cache is written', async () => {
+    const { sb, repo } = await connectedClone()
+    push(teammate(sb), '020-mate', '020-mate')
+    quiet(repo, 'fetch', '-q')
+
+    const { text, manifest } = await print(repo)
+    expect(named(manifest, '020-mate')).toEqual([])
+    expect(text).not.toContain('"remote"')
+    expect(existsSync(cacheFile(repo))).toBe(false)
+  })
+
+  it('with the option on, reports it as remote, silently, owned by its author on the board', async () => {
+    const { sb, repo, project: p, cloneId } = await connectedClone()
+    await share(p.id)
+    const tip = push(teammate(sb), '020-mate', '020-mate')
+    quiet(repo, 'fetch', '-q')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, '020-mate')).toMatchObject([
+      { tip, pushed: true, remote: true, features: [{ dir: '020-mate', author: { name: 'Anders Mate' } }] },
+    ])
+    for (const b of manifest.branches.filter((x) => x.name !== '020-mate'))
+      expect(b).not.toHaveProperty('remote')
+
+    // a commit in the connected clone: hooks fire, nothing printed, the remote branch is stored
+    repo.write('notes.txt', 'x\n')
+    const out = repo.commit(['notes.txt'], 'notes')
+    expect(out.stdout + out.stderr).not.toContain('spec-hub')
+    expect(out.stderr).toBe('')
+    const row = await waitFor(
+      async () => (await branchesOf(cloneId)).find((b) => b.name === '020-mate'),
+      'remote branch 020-mate',
+    )
+    expect(row).toMatchObject({ remote: true, pushed: true })
+
+    const board = await loadBoard(db, p.id)
+    const entry = board.inFlight.find((e) => e.dir === '020-mate')
+    // the teammate (not a member) by git name, never the reporting user; the branch is nobody's
+    expect(entry?.owner).toEqual({ kind: 'git-name', name: 'Anders Mate' })
+    expect(entry?.branches).toMatchObject([{ branch: '020-mate', pushed: true, carrierUserId: null }])
+  })
+
+  it('does not report a remote branch whose last commit is 20 days old', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    const mate = teammate(sb)
+    const old = `${Math.floor(Date.now() / 1000) - 20 * 86_400} +0000`
+    push(mate, '021-old', '021-old', SPEC, { GIT_COMMITTER_DATE: old, GIT_AUTHOR_DATE: old })
+    push(mate, '022-new', '022-new')
+    quiet(repo, 'fetch', '-q')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, '021-old')).toEqual([])
+    expect(named(manifest, '022-new')).toHaveLength(1)
+  })
+
+  it('reports a remote branch named like a local branch once, as the local one', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '023-both', '023-both', `${SPEC}\nTeammate's text.\n`)
+    quiet(repo, 'fetch', '-q')
+    quiet(repo, 'checkout', '-q', '-b', '023-both', 'main')
+    repo.write('specs/023-both/spec.md', `${SPEC}\nMy text.\n`)
+    quiet(repo, 'add', 'specs')
+    quiet(repo, 'commit', '-q', '-m', 'my spec')
+
+    const both = named((await print(repo)).manifest, '023-both')
+    expect(both).toHaveLength(1)
+    expect(both[0]).not.toHaveProperty('remote')
+    expect(both[0]?.tip).toBe(quiet(repo, 'rev-parse', 'HEAD').trim())
+  })
+
+  it('a merged local branch of the same name does not hide a teammate’s new work on it', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    quiet(repo, 'branch', 'reuse') // at main: contained in origin/main, so never reported
+    push(teammate(sb), 'reuse', '027-reuse')
+    quiet(repo, 'fetch', '-q')
+
+    expect(named((await print(repo)).manifest, 'reuse')).toMatchObject([
+      { remote: true, features: [{ dir: '027-reuse' }] },
+    ])
+  })
+
+  it('a remote branch that a reported local branch tracks under another name is reported once, as the local one', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '025-mcp', '025-mcp')
+    quiet(repo, 'fetch', '-q')
+    quiet(repo, 'checkout', '-q', '-b', 'my-025', '--track', 'origin/025-mcp')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, '025-mcp')).toEqual([])
+    const mine = named(manifest, 'my-025')
+    expect(mine).toMatchObject([{ features: [{ dir: '025-mcp' }] }])
+    expect(mine[0]).not.toHaveProperty('remote')
+  })
+
+  it('a teammate’s branch that changes no feature is not reported', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    const mate = teammate(sb)
+    mate.git('checkout', '-q', '-b', 'chore/code', 'origin/main')
+    mate.write('src/x.ts', 'export {}\n')
+    mate.git('add', 'src')
+    mate.git('commit', '-q', '-m', 'code only')
+    mate.git('push', '-q', 'origin', 'chore/code')
+    push(mate, '028-f', '028-f')
+    quiet(repo, 'fetch', '-q')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, 'chore/code')).toEqual([])
+    expect(named(manifest, '028-f')).toHaveLength(1)
+  })
+
+  it('turning the option off removes the cache', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '029-c', '029-c')
+    quiet(repo, 'fetch', '-q')
+    await print(repo)
+    expect(existsSync(cacheFile(repo))).toBe(true)
+
+    await db.update(project).set({ sharePushedBranches: false }).where(eq(project.id, p.id))
+    expect(named((await print(repo)).manifest, '029-c')).toEqual([])
+    expect(existsSync(cacheFile(repo))).toBe(false)
+  })
+
+  it('the report summary counts only the clone’s own branches and features', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '030-mate', '030-mate')
+    quiet(repo, 'fetch', '-q')
+    quiet(repo, 'checkout', '-q', '-b', '031-own')
+    repo.write('specs/031-own/spec.md', SPEC)
+    quiet(repo, 'add', 'specs')
+    quiet(repo, 'commit', '-q', '-m', 'own spec')
+
+    const r = await repo.spechub(['report'])
+    expect(r).toMatchObject({ status: 0, stdout: 'Reported 1 features on 1 branches.\n', stderr: '' })
+  })
+
+  it('a private prefix hides a remote branch', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    const mate = teammate(sb)
+    push(mate, 'wip/024-x', '024-x')
+    push(mate, '025-y', '025-y')
+    quiet(repo, 'fetch', '-q')
+    expect((await repo.spechub(['private', 'add', 'wip/'])).status).toBe(0)
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, 'wip/024-x')).toEqual([])
+    expect(named(manifest, '025-y')).toHaveLength(1)
+  })
+
+  it('reuses the cached remote lines until a fetch moves a remote branch', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    const mate = teammate(sb)
+    const tip1 = push(mate, '026-c', '026-c')
+    quiet(repo, 'fetch', '-q')
+
+    expect(named((await print(repo)).manifest, '026-c')[0]?.tip).toBe(tip1)
+    const cache = readFileSync(cacheFile(repo), 'utf8')
+    const key = cache.split('\n')[0]
+    expect(cache).toContain(`B\t026-c\t${tip1}\t`)
+
+    // same refs: the cached lines are what is reported (a marked copy proves they are not recomputed)
+    const marked = cache.replace('B\t026-c\t', 'B\t026-c-cached\t')
+    writeFileSync(cacheFile(repo), marked)
+    const again = (await print(repo)).manifest
+    expect(named(again, '026-c-cached')).toHaveLength(1)
+    expect(named(again, '026-c')).toEqual([])
+    expect(readFileSync(cacheFile(repo), 'utf8')).toBe(marked)
+
+    // the teammate pushes again; after a fetch the key changes and the new tip is reported
+    const tip2 = push(mate, '026-c', '026-c', `${SPEC}\nMore.\n`)
+    quiet(repo, 'fetch', '-q')
+    const moved = (await print(repo)).manifest
+    expect(named(moved, '026-c')[0]?.tip).toBe(tip2)
+    expect(named(moved, '026-c-cached')).toEqual([])
+    const rebuilt = readFileSync(cacheFile(repo), 'utf8')
+    expect(rebuilt.split('\n')[0]).not.toBe(key)
+    expect(rebuilt).toContain(`B\t026-c\t${tip2}\t`)
   })
 })

@@ -168,6 +168,7 @@ async function insertBranchesAndFeatures(tx: Tx, manifest: ReportManifest) {
       tip: b.tip,
       tipAt: new Date(b.tipAt * 1000),
       pushed: b.pushed,
+      remote: b.remote === true,
     })),
   )
   const features = manifest.branches.flatMap((b) =>

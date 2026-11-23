@@ -1,4 +1,4 @@
-import { and, eq, max } from 'drizzle-orm'
+import { and, eq, isNull, max } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../app-env.ts'
@@ -16,7 +16,7 @@ const featureQuery = z.object({ branch: z.string().min(1).max(255).optional() })
 export const boardRoutes = new Hono<AppEnv>()
   .get('/projects/:slug/board', ...guard, async (c) => {
     const projectId = c.var.project.id
-    const [board, reports] = await Promise.all([
+    const [board, reports, pendingRows] = await Promise.all([
       loadBoard(db, projectId),
       db
         .select({ userId: clone.userId, at: max(clone.reportedAt) })
@@ -27,10 +27,21 @@ export const boardRoutes = new Hono<AppEnv>()
         )
         .where(eq(clone.projectId, projectId))
         .groupBy(clone.userId),
+      // added by an admin but never signed in: not on the board's member list, so named here
+      db
+        .select({ login: membership.assignedLogin })
+        .from(membership)
+        .where(and(eq(membership.projectId, projectId), isNull(membership.userId)))
+        .orderBy(membership.assignedLogin),
     ])
     const lastReportAt: Record<string, number> = {}
     for (const r of reports) if (r.at) lastReportAt[r.userId] = r.at.getTime()
-    return c.json({ board, lastReportAt, defaultBranch: c.var.project.defaultBranch })
+    return c.json({
+      board,
+      lastReportAt,
+      pending: pendingRows.map((r) => r.login),
+      defaultBranch: c.var.project.defaultBranch,
+    })
   })
   .get('/projects/:slug/finished', ...guard, async (c) => c.json(await loadFinished(db, c.var.project.id)))
   .get(

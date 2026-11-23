@@ -21,6 +21,7 @@ export const reporterRoutes = new Hono<AppEnv>()
     return c.json({
       defaultBranch: c.var.project.defaultBranch,
       numbering: c.var.project.numbering,
+      sharePushedBranches: c.var.project.sharePushedBranches,
       finishedTip: c.var.project.finishedTip ?? null,
       finishedTipAt: c.var.project.finishedTipAt
         ? Math.floor(c.var.project.finishedTipAt.getTime() / 1000)
