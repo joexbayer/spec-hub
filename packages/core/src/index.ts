@@ -1,6 +1,7 @@
 // Pure domain logic for Spec Hub; no I/O (constitution Art. 6).
 
 export * from './board.ts'
+export * from './finished.ts'
 export * from './graphs.ts'
 export * from './landing.ts'
 export * from './manifest.ts'

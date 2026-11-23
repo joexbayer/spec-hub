@@ -56,6 +56,35 @@ export interface LandedFeature {
   baseline: boolean
 }
 
+/** One landed_feature row joined with its documents' facts. */
+export interface FinishedRow {
+  dir: string
+  firstSeenAt: number
+  baseline: boolean
+  addedAt: number | null
+  lastChangeAt: number | null
+  author: { name: string; email: string } | null
+  spec: DocFacts | null
+  plan: DocFacts | null
+  tasks: DocFacts | null
+}
+
+/** A finished feature (on the default branch) as the list, the API and agents show it. */
+export interface FinishedFeature {
+  dir: string
+  number: string | null
+  title: string
+  owner: Owner
+  /** firstSeenAt, or addedAt for history before the project was connected; null when unknown. */
+  landedAt: number | null
+  lastChangeAt: number | null
+  tasks: { done: number; total: number } | null
+  /** Its documents have been reported (false for rows written without the default branch's listing). */
+  reported: boolean
+  /** Also in flight or stale on some branch. */
+  inFlight: boolean
+}
+
 export interface BranchRef {
   branch: string
   pushed: boolean

@@ -31,6 +31,9 @@ export const project = pgTable('project', {
   numbering: projectNumbering('numbering').notNull().default('sequential'),
   defaultTip: text('default_tip'),
   defaultTipAt: timestamp('default_tip_at', { withTimezone: true }),
+  // The default-branch commit (and its time) of the newest stored listing with documents (specs/005-finished-features).
+  finishedTip: text('finished_tip'),
+  finishedTipAt: timestamp('finished_tip_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -142,6 +145,17 @@ export const landedFeature = pgTable(
     dir: text('dir').notNull(),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
     baseline: boolean('baseline').notNull(),
+    // Facts of the default branch's listing; null until one is stored.
+    addedAt: timestamp('added_at', { withTimezone: true }),
+    lastChangeAt: timestamp('last_change_at', { withTimezone: true }),
+    authorName: text('author_name'),
+    authorEmail: text('author_email'),
+    specOid: text('spec_oid'),
+    planOid: text('plan_oid'),
+    tasksOid: text('tasks_oid'),
+    specSize: integer('spec_size'),
+    planSize: integer('plan_size'),
+    tasksSize: integer('tasks_size'),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.dir] })],
 )
