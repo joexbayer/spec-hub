@@ -1,6 +1,6 @@
 ---
 name: reporter-testing
-description: How to change and test the POSIX sh reporter (packages/extension/scripts/spec-hub) — end-to-end tests against an in-process hub, git path quoting, macOS ref-name limits, hook timing. Use when editing the reporter script, adding reporter commands, writing or debugging tests in apps/server/test/reporter/, or when a feature folder with odd characters doesn't show up on the board.
+description: How to change and test the POSIX sh reporter (packages/extension/scripts/spec-hub) — end-to-end tests against an in-process hub, git path quoting, macOS ref-name limits, hook timing, default-branch listing (finishedTip, default.features). Use when editing the reporter script, adding reporter commands, writing or debugging tests in apps/server/test/reporter/, or when a feature folder with odd characters doesn't show up on the board.
 ---
 
 # Testing the reporter
@@ -52,6 +52,14 @@ with the script at `.specify/extensions/spec-hub/scripts/spec-hub`).
 - Hook budget: foreground `hook` < 100 ms (median ~20 ms on the M-series dev machine); the test
   fails above 150 ms to tolerate load. The fast path makes one git call
   (`git config --local --show-origin spec-hub.cloneId`).
+
+## Default-branch listing (spec 005)
+
+- The reporter adds `default.features` only when `GET /config`'s `finishedTip` is neither its `<remote>/<default>` tip nor a descendant of it (`git merge-base --is-ancestor`); see it with `sh <script> report --print-manifest` (only GET /config is sent).
+- Landing time comes from `git log --first-parent --diff-merges=first-parent --name-only`: a merge commit is credited with the folders it brought in, so `addedAt` is the merge time, not the branch commit's. Read through the usual tr, header lines are `^\001[0-9]+$` and names may start with `\001`.
+- Build test history with `git -c core.hooksPath=/dev/null ...` when a background report must not race the push you are about to make.
+- `connect` reports at once and sets the project's `defaultTipAt`/`finishedTipAt` to the initial commit's time (now). A test history back-dated before that is ignored by the hub as older: null `defaultTip`, `defaultTipAt`, `finishedTip`, `finishedTipAt` on the project (the e2e tests' `forgetTips(projectId)`) before the report you assert on.
+- The first report after the default branch moves runs two extra full-history `git log`s over `specs/` (about 1 s on a 8,000-commit repo); they are skipped once the hub has the tip.
 
 ## Measuring report time
 Build a synthetic clone like `specs/001-team-board/validation.md` (124 local branches: 83 merged

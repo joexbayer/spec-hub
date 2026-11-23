@@ -101,6 +101,7 @@ when it finds `pending`. A lock older than 10 minutes is left by a crash and is 
 - A feature's owner is the author of the oldest commit that added its `spec.md`, following renames
   (`-M`) but not copies (`git log --follow` would also follow copies, which gives a new spec that
   resembles another one that spec's author).
+- Default branch (spec 005): when the hub's `finishedTip` is not this clone's `<remote>/<default>` tip or a descendant of it, the report also lists the default branch's feature folders with documents, owner and landing time; see [005's reporter contract](../../005-finished-features/contracts/reporter.md).
 
 ## Output rules (Art. 3.6)
 

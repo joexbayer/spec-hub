@@ -32,6 +32,8 @@ If you keep `backup/*` branches (for example before a rebase), each one shows up
 sh .specify/extensions/spec-hub/scripts/spec-hub private add backup/
 ```
 
+Reports also include the default branch's specs when it has moved since the hub last saw it, so the hub can show finished features. One connected member with this version of the extension is enough to fill that list for the whole project.
+
 ## Agents
 
 Agents read the same board over MCP. The agent connects to `https://<hub>/mcp/<project>` with the same
