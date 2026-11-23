@@ -3,7 +3,15 @@ import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { app } from '../src/app.ts'
 import { db } from '../src/db/client.ts'
-import { clone, cloneBranch, cloneFeature, document, landPlace, user } from '../src/db/schema.ts'
+import {
+  clone,
+  cloneBranch,
+  cloneFeature,
+  document,
+  landedFeature,
+  landPlace,
+  user,
+} from '../src/db/schema.ts'
 import { formatBoard } from '../src/mcp/format.ts'
 import { loadBoard } from '../src/services/board-query.ts'
 import { poll } from '../src/services/landing.ts'
@@ -85,11 +93,12 @@ describe('MCP endpoint', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       'board',
       'feature',
+      'finished',
       'land_lock',
       'land_unlock',
       'landing',
     ])
-    for (const t of tools.filter((t) => ['board', 'feature', 'landing'].includes(t.name))) {
+    for (const t of tools.filter((t) => ['board', 'feature', 'finished', 'landing'].includes(t.name))) {
       expect(t.annotations?.readOnlyHint).toBe(true)
     }
   })
@@ -128,6 +137,67 @@ describe('MCP endpoint', () => {
     expect(both.isError).toBe(true)
     expect(textOf(both)).toContain('104-ledger')
     expect(textOf(both)).toContain('104-quota')
+  })
+})
+
+describe('MCP finished', () => {
+  async function seedLanded(
+    p: TestProject,
+    dir: string,
+    oid: string,
+    title: string,
+    owner: string,
+    at: number,
+  ) {
+    const content = `# ${title}\n**Owner**: ${owner}\n\nMain text of ${title}\n`
+    await db
+      .insert(document)
+      .values({ projectId: p.id, oid, size: content.length, content, title, ownerHandle: owner })
+    await db.insert(landedFeature).values({
+      projectId: p.id,
+      dir,
+      firstSeenAt: new Date(at),
+      baseline: false,
+      addedAt: new Date(at),
+      lastChangeAt: new Date(at),
+      specOid: oid,
+      specSize: content.length,
+    })
+  }
+
+  it('filters by text and by owner, newest landing first', async () => {
+    const { p, key } = await setup()
+    const now = Date.now()
+    await seedLanded(p, '090-billing', 'oid-billing-0001', 'Billing', 'bob', now - 5 * 86_400_000)
+    await seedLanded(p, '091-quota', 'oid-quota-000001', 'Quota', 'carol', now - 1 * 86_400_000)
+    const client = await connect('acme', key)
+    const all = textOf(await client.callTool({ name: 'finished', arguments: {} }))
+    expect(all).toMatch(/^Finished in acme \(2\):/)
+    expect(all.indexOf('Quota')).toBeLessThan(all.indexOf('Billing'))
+    const byText = textOf(await client.callTool({ name: 'finished', arguments: { query: 'bill' } }))
+    expect(byText).toContain('(2, 1 match)')
+    expect(byText).toContain('Billing')
+    expect(byText).not.toContain('Quota')
+    const byOwner = textOf(await client.callTool({ name: 'finished', arguments: { owner: '@carol' } }))
+    expect(byOwner).toContain('Quota')
+    expect(byOwner).not.toContain('Billing')
+    const none = textOf(await client.callTool({ name: 'finished', arguments: { query: 'zzz' } }))
+    expect(none).toBe('No finished feature matches "zzz".')
+  })
+
+  it('feature with branch main returns the default branch spec of a feature also on a branch', async () => {
+    const { p, key } = await setup()
+    await seedLanded(p, '104-ledger', 'oid-main-spec-01', 'Ledger', 'alice', Date.now() - 86_400_000)
+    const client = await connect('acme', key)
+    const main = await client.callTool({
+      name: 'feature',
+      arguments: { id: '104', document: 'spec', branch: 'main' },
+    })
+    expect(textOf(main)).toContain('spec.md oid-main-spe')
+    expect(textOf(main)).toContain('on main')
+    expect(textOf(main)).toContain('Main text of Ledger')
+    const info = textOf(await client.callTool({ name: 'feature', arguments: { id: '104' } }))
+    expect(info).toContain('Also finished on main; ask with branch "main" for that version')
   })
 })
 

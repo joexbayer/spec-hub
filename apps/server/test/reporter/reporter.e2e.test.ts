@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -6,9 +6,9 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
-import { apikey, cloneBranch, cloneFeature, document, project } from '../../src/db/schema.ts'
+import { apikey, cloneBranch, cloneFeature, document, landedFeature, project } from '../../src/db/schema.ts'
 import { addMember, createProject, createToken, createUser, truncateAll } from '../helpers.ts'
-import { type Hub, type Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
+import { type Hub, Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
 
 let hub: Hub
 let seq = 0
@@ -503,5 +503,133 @@ describe('default branch listing (finished features)', () => {
     expect(unchanged.tip).toBe(tip)
     expect(unchanged.dirs).toEqual(['001-full', '002-spec-only', '003-merged'])
     expect(unchanged).not.toHaveProperty('features')
+  })
+
+  // ---- main moves, lagging clones, older reporters (quickstart 3, 4, 5)
+
+  const landedOf = (projectId: string) =>
+    db.select().from(landedFeature).where(eq(landedFeature.projectId, projectId)).orderBy(landedFeature.dir)
+  const projectRow = async (id: string) => (await db.select().from(project).where(eq(project.id, id)))[0]!
+  /**
+   * connect already reported the initial commit (tip time: now), and buildMain's tip is back-dated,
+   * so the hub would ignore its listing as older: forget the tips first.
+   */
+  const forgetTips = (projectId: string) =>
+    db
+      .update(project)
+      .set({ defaultTip: null, defaultTipAt: null, finishedTip: null, finishedTipAt: null })
+      .where(eq(project.id, projectId))
+  /** Rows with every fact stored, so a later change to them is visible. */
+  const storedListing = (projectId: string) =>
+    waitFor(async () => {
+      const rows = await landedOf(projectId)
+      return rows.length === 3 && rows.every((r) => r.specOid) ? rows : undefined
+    }, 'stored listing')
+  /** git with the clone's hooks off, so no background report races what the test does next. */
+  const quiet = (repo: Repo, args: string[], env?: NodeJS.ProcessEnv) => {
+    const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args], env ? { env } : {})
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+  }
+
+  it('follows main: an edited spec, a renamed folder and a removed folder reach the hub', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    await storedListing(p.id)
+
+    // commit times have 1 s resolution: put the new tip clearly after the stored one
+    const later = String(Math.floor(Date.now() / 1000) + 60)
+    const at = { GIT_AUTHOR_DATE: `${later} +0000`, GIT_COMMITTER_DATE: `${later} +0000` }
+    repo.write('specs/001-full/spec.md', `${SPEC}\nfull, edited on main\n`)
+    quiet(repo, ['add', 'specs'])
+    quiet(repo, ['mv', 'specs/002-spec-only', 'specs/005-renamed'])
+    quiet(repo, ['rm', '-q', '-r', 'specs/003-merged'])
+    quiet(repo, ['commit', '-q', '-m', 'main moves'], at)
+    quiet(repo, ['push', '-q', 'origin', 'main'])
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+
+    const edited = blob(repo, 'specs/001-full/spec.md')
+    const rows = await waitFor(async () => {
+      const r = await landedOf(p.id)
+      return r.find((x) => x.dir === '001-full')?.specOid === edited ? r : undefined
+    }, 'main listing')
+    expect(rows.map((r) => r.dir)).toEqual(['001-full', '005-renamed'])
+    expect(rows.find((r) => r.dir === '005-renamed')?.specOid).toBe(blob(repo, 'specs/005-renamed/spec.md'))
+  })
+
+  it('a clone behind the hub sends no listing; one that cannot tell sends it and is ignored as older', async () => {
+    const { sb, repo, project: p, token } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    const before = await storedListing(p.id)
+
+    // a second clone of the same origin, as another member would have it
+    sb.git(sb.root, 'clone', '-q', join(sb.root, 'clone-origin.git'), 'second')
+    const second = new Repo(sb, join(sb.root, 'second'))
+    await second.connect(token.key)
+
+    // the hub is ahead: its tip is a descendant of the clone's origin/main
+    quiet(second, [
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@example.test',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'ahead',
+    ])
+    const ahead = second.git('rev-parse', 'HEAD').trim()
+    await db
+      .update(project)
+      .set({ finishedTip: ahead, finishedTipAt: new Date() })
+      .where(eq(project.id, p.id))
+    expect(await printDefault(second)).not.toHaveProperty('features')
+
+    // the hub's tip is a commit the clone does not have: it cannot prove it is behind
+    const unknown = '1'.repeat(40)
+    const newer = new Date(Date.now() + 3_600_000)
+    await db.update(project).set({ finishedTip: unknown, finishedTipAt: newer }).where(eq(project.id, p.id))
+    expect((await printDefault(second)).features).toHaveLength(3)
+
+    // a real report proves the hub took it (the branch) and ignored the listing
+    quiet(second, ['checkout', '-q', '-b', '006-second'])
+    second.write('specs/006-second/spec.md', SPEC)
+    quiet(second, ['add', 'specs'])
+    quiet(second, ['-c', 'user.name=T', '-c', 'user.email=t@example.test', 'commit', '-q', '-m', 'second'])
+    expect((await second.spechub(['report', '--quiet'])).status).toBe(0)
+    await waitFor(() => featureRow(second.cloneId(), '006-second', '006-second'), 'second clone report')
+    expect((await projectRow(p.id)).finishedTip).toBe(unknown)
+    expect(await landedOf(p.id)).toEqual(before)
+  })
+
+  it('a manifest without features, as an older reporter sends it, changes no finished feature', async () => {
+    const { repo, project: p, token } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    const before = await storedListing(p.id)
+    const stored = await projectRow(p.id)
+
+    // the hub has the tip now, so the reporter leaves the listing out
+    const manifest = JSON.parse((await repo.spechub(['report', '--print-manifest'])).stdout)
+    expect(manifest.default).not.toHaveProperty('features')
+    manifest.cloneId = randomUUID()
+    manifest.generatedAt = Date.now()
+    manifest.default.tipAt += 60
+    const res = await fetch(`http://127.0.0.1:${hub.port}/api/r/${p.slug}/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(manifest),
+    })
+    expect(res.status).toBe(200)
+
+    const after = await projectRow(p.id)
+    expect(after.defaultTipAt!.getTime()).toBe(stored.defaultTipAt!.getTime() + 60_000) // it was applied
+    expect(after.finishedTipAt).toEqual(stored.finishedTipAt)
+    expect(await landedOf(p.id)).toEqual(before)
   })
 })
