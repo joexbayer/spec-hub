@@ -11,7 +11,16 @@ import {
   project,
   securityEvent,
 } from '../src/db/schema.ts'
-import { addMember, createProject, createToken, createUser, request, truncateAll } from './helpers.ts'
+import {
+  addMember,
+  createProject,
+  createToken,
+  createUser,
+  jsonRequest,
+  request,
+  sessionCookie,
+  truncateAll,
+} from './helpers.ts'
 
 const enc = (s: string) => new TextEncoder().encode(s)
 const oidOf = (bytes: Uint8Array) => gitBlobId(bytes, 'sha1')
@@ -29,7 +38,7 @@ function manifest(
   cloneId: string,
   generatedAt: number,
   branches: Br[],
-  def: { tipAt: number; dirs: string[]; branch?: string } | null = null,
+  def: { tipAt: number; dirs: string[]; branch?: string; tip?: string; features?: unknown[] } | null = null,
 ) {
   return {
     cloneId,
@@ -73,6 +82,18 @@ async function setup() {
   return { alice, p, auth, report, put }
 }
 
+const defFeature = (
+  dir: string,
+  spec: Doc = null,
+  over: { addedAt?: number; lastChangeAt?: number } = {},
+) => ({
+  dir,
+  addedAt: 900,
+  lastChangeAt: 950,
+  author: { name: 'Alice', email: 'alice@example.test' },
+  ...over,
+  docs: { spec, plan: null, tasks: null },
+})
 beforeEach(truncateAll)
 afterEach(() => vi.restoreAllMocks())
 
@@ -308,5 +329,160 @@ describe('cross-project isolation (SEC-A01)', () => {
       projectId: (await db.select().from(project).where(eq(project.slug, 'acme')))[0]?.id,
       generatedAt: 100,
     })
+  })
+})
+
+describe('finished features (default.features)', () => {
+  const CLONE = crypto.randomUUID()
+  const T0 = Math.floor(Date.now() / 1000) - 1000
+  const TIP2 = 'b'.repeat(40)
+  const TIP3 = 'c'.repeat(40)
+  const rows = () => db.select().from(landedFeature).orderBy(landedFeature.dir)
+  const proj = async () => (await db.select().from(project).where(eq(project.slug, 'acme')))[0]
+
+  it('asks for the listed documents, then stores facts and the finished tip', async () => {
+    const { report, put } = await setup()
+    const m = manifest(CLONE, 100, [], {
+      tipAt: T0,
+      dirs: ['001-a'],
+      tip: TIP2,
+      features: [defFeature('001-a', ref(SPEC))],
+    })
+    const res = await report(m)
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { missing: string[] }).missing).toEqual([oidOf(SPEC)])
+    expect((await put(oidOf(SPEC), SPEC)).status).toBeLessThan(300)
+    expect((await report(m)).status).toBe(200)
+    expect(await rows()).toMatchObject([
+      {
+        dir: '001-a',
+        addedAt: new Date(900_000),
+        lastChangeAt: new Date(950_000),
+        authorName: 'Alice',
+        authorEmail: 'alice@example.test',
+        specOid: oidOf(SPEC),
+        specSize: SPEC.byteLength,
+        planOid: null,
+      },
+    ])
+    expect(await proj()).toMatchObject({ finishedTip: TIP2, finishedTipAt: new Date(T0 * 1000) })
+  })
+
+  it('keeps firstSeenAt and baseline, updates facts on a newer listing', async () => {
+    const { report } = await setup()
+    await report(manifest(CLONE, 100, [], { tipAt: T0, dirs: ['001-a'], features: [defFeature('001-a')] }))
+    const [first] = await rows()
+    await report(
+      manifest(CLONE, 200, [], {
+        tipAt: T0 + 100,
+        dirs: ['001-a'],
+        tip: TIP2,
+        features: [defFeature('001-a', null, { lastChangeAt: 990 })],
+      }),
+    )
+    const [second] = await rows()
+    expect(second?.lastChangeAt).toEqual(new Date(990_000))
+    expect(second?.firstSeenAt).toEqual(first?.firstSeenAt)
+    expect(second?.baseline).toBe(first?.baseline)
+    expect(first?.baseline).toBe(true)
+  })
+
+  it('ignores an older or equal listing', async () => {
+    const { report } = await setup()
+    await report(
+      manifest(CLONE, 100, [], {
+        tipAt: T0,
+        dirs: ['001-a'],
+        tip: TIP2,
+        features: [defFeature('001-a')],
+      }),
+    )
+    await report(manifest(CLONE, 200, [], { tipAt: T0, dirs: ['001-a'], tip: TIP3, features: [] }))
+    await report(
+      manifest(CLONE, 300, [], {
+        tipAt: T0 - 100,
+        dirs: ['001-a'],
+        tip: TIP3,
+        features: [defFeature('001-a', null, { lastChangeAt: 999 })],
+      }),
+    )
+    expect(await rows()).toMatchObject([{ dir: '001-a', lastChangeAt: new Date(950_000) }])
+    expect((await proj())?.finishedTip).toBe(TIP2)
+  })
+
+  it('ignores a listing for another branch than the default', async () => {
+    const { report } = await setup()
+    await report(
+      manifest(CLONE, 100, [], {
+        branch: 'other',
+        tipAt: T0,
+        dirs: ['001-a'],
+        features: [defFeature('001-a')],
+      }),
+    )
+    expect(await rows()).toHaveLength(0)
+    expect(await proj()).toMatchObject({ finishedTip: null, finishedTipAt: null })
+  })
+
+  it('deletes rows missing from a newer listing, all of them for an empty one', async () => {
+    const { report } = await setup()
+    await report(
+      manifest(CLONE, 100, [], {
+        tipAt: T0,
+        dirs: ['001-a', '002-b'],
+        features: [defFeature('001-a'), defFeature('002-b')],
+      }),
+    )
+    expect(await rows()).toHaveLength(2)
+    await report(
+      manifest(CLONE, 200, [], { tipAt: T0 + 100, dirs: ['001-a'], features: [defFeature('001-a')] }),
+    )
+    expect(await rows()).toMatchObject([{ dir: '001-a' }])
+    await report(manifest(CLONE, 300, [], { tipAt: T0 + 200, dirs: [], features: [] }))
+    expect(await rows()).toHaveLength(0)
+  })
+
+  it('leaves finished rows alone when a newer manifest has no features', async () => {
+    const { report } = await setup()
+    await report(manifest(CLONE, 100, [], { tipAt: T0, dirs: ['001-a'], features: [defFeature('001-a')] }))
+    await report(manifest(CLONE, 200, [], { tipAt: T0 + 100, dirs: ['001-a'] }))
+    expect(await rows()).toMatchObject([{ dir: '001-a', addedAt: new Date(900_000), authorName: 'Alice' }])
+    expect((await proj())?.finishedTip).toBe(TIP)
+  })
+
+  it('returns finishedTip from /config', async () => {
+    const { report, auth } = await setup()
+    const config = async () =>
+      (
+        (await (await request('/api/r/acme/config', { headers: auth })).json()) as {
+          finishedTip: string | null
+        }
+      ).finishedTip
+    expect(await config()).toBeNull()
+    await report(
+      manifest(CLONE, 100, [], {
+        tipAt: T0,
+        dirs: ['001-a'],
+        tip: TIP2,
+        features: [defFeature('001-a')],
+      }),
+    )
+    expect(await config()).toBe(TIP2)
+  })
+
+  it('resets the finished tip when the default branch changes', async () => {
+    const { report, p } = await setup()
+    await report(manifest(CLONE, 100, [], { tipAt: T0, dirs: [], tip: TIP2, features: [] }))
+    expect((await proj())?.finishedTip).toBe(TIP2)
+    const admin = await createUser('ann')
+    await addMember(p, admin, 'admin')
+    const res = await jsonRequest(
+      '/api/projects/acme',
+      'PATCH',
+      { defaultBranch: 'develop' },
+      { cookie: await sessionCookie(admin) },
+    )
+    expect(res.status).toBe(200)
+    expect(await proj()).toMatchObject({ defaultBranch: 'develop', finishedTip: null, finishedTipAt: null })
   })
 })

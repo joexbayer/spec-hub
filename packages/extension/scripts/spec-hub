@@ -231,6 +231,33 @@ function owner_line(line,   p) {
   return p
 }'
 
+# MANIFEST_AWK: helpers shared by FEATURES_AWK, BRANCHES_AWK and DEFAULT_AWK (with JS_AWK).
+# meta(line, m) splits an ls-tree -l line: m[1..4] = mode type oid size, returns the path.
+# dirpart(p) sets D and F from "specs/D/F..." (false for other paths). docref(d, f) is doc[d, f]
+# ("oid size") or "-"; docjs and authorjs turn those and "name\037email" into JSON. The hub
+# refuses times in the future (a skewed clock or imported history would otherwise block every
+# report), so clamp(t) bounds commit times by now (awk -v now=...).
+# shellcheck disable=SC2016 # awk program
+MANIFEST_AWK="$JS_AWK"'
+function meta(line, m,   i) { i = index(line, "\t"); split(substr(line, 1, i - 1), m, " "); return substr(line, i + 1) }
+function dirpart(p,   rest, j) {
+  if (substr(p, 1, 6) != "specs/") return 0
+  rest = substr(p, 7); j = index(rest, "/")
+  if (!j) { D = rest; F = ""; return 1 }
+  D = substr(rest, 1, j - 1); F = substr(rest, j + 1); return 1
+}
+function docref(d, f) { return ((d, f) in doc) ? doc[d, f] : "-" }
+function docjs(v,   x) { if (v == "-") return "null"; split(v, x, " "); return "{\"oid\":\"" x[1] "\",\"size\":" x[2] "}" }
+function authorjs(a,   i, n, e) {
+  i = index(a, "\037")
+  if (!i) return "null"
+  n = substr(a, 1, i - 1); e = substr(a, i + 1)
+  gsub(/[\001-\037]/, "", n); gsub(/[\001-\037]/, "", e)
+  if (n == "" || length(n) > 255 || length(e) > 320) return "null"
+  return "{\"name\":" js(n) ",\"email\":" js(e) "}"
+}
+function clamp(t) { return (t + 0 > now + 0) ? now : t }'
+
 # FEATURES_AWK reads the base trees (ls-tree -d BASE specs/) and then, on stdin, three sections
 # separated by a "\003" line: the paths REF changed since leaving BASE (git diff --name-only),
 # REF's specs/ (ls-tree -r -t -l) and the commits since leaving BASE (OWNER_AWK's log). For each
@@ -242,16 +269,7 @@ function owner_line(line,   p) {
 # Otherwise it writes all of them to ENVIRON["ONBASE"], with "C" instead of "F" for the dirs
 # that exist in BASE: those may have landed by rebase or cherry-pick (KEEP_AWK decides).
 # shellcheck disable=SC2016 # awk program
-FEATURES_AWK="$OWNER_AWK"'
-function meta(line, m,   i) { i = index(line, "\t"); split(substr(line, 1, i - 1), m, " "); return substr(line, i + 1) }
-function docref(d, f) { return ((d, f) in doc) ? doc[d, f] : "-" }
-# dirpart(p): sets D and F from "specs/D/F..."; false for other paths
-function dirpart(p,   rest, j) {
-  if (substr(p, 1, 6) != "specs/") return 0
-  rest = substr(p, 7); j = index(rest, "/")
-  if (!j) { D = rest; F = ""; return 1 }
-  D = substr(rest, 1, j - 1); F = substr(rest, j + 1); return 1
-}
+FEATURES_AWK="$OWNER_AWK$MANIFEST_AWK"'
 function owner_found(d) { added[d] = WHO }
 FILENAME == ARGV[1] { if (index($0, "\t")) { p = meta($0, m); base[substr(p, 7)] = m[3] }; next }
 $0 == "\003" {
@@ -342,17 +360,8 @@ branch_features() {
 # BRANCHES_AWK, over the B and F lines and then BASE's log (OWNER_AWK; empty unless an owner
 # was left to look up there): the "branches" array body.
 # shellcheck disable=SC2016 # awk program
-BRANCHES_AWK="$JS_AWK$OWNER_AWK"'
+BRANCHES_AWK="$OWNER_AWK$MANIFEST_AWK"'
 function owner_found(ids,   n, x, k) { n = split(ids, x, " "); for (k = 1; k <= n; k++) fa[x[k]] = WHO }
-function docjs(v,   x) { if (v == "-") return "null"; split(v, x, " "); return "{\"oid\":\"" x[1] "\",\"size\":" x[2] "}" }
-function authorjs(a,   i, n, e) {
-  i = index(a, "\037")
-  if (!i) return "null"
-  n = substr(a, 1, i - 1); e = substr(a, i + 1)
-  gsub(/[\001-\037]/, "", n); gsub(/[\001-\037]/, "", e)
-  if (n == "" || length(n) > 255 || length(e) > 320) return "null"
-  return "{\"name\":" js(n) ",\"email\":" js(e) "}"
-}
 FILENAME == ARGV[1] && /^B\t/ { nb++; split($0, x, "\t"); bn[nb] = x[2]; bt[nb] = x[3]; bat[nb] = x[4]; bp[nb] = x[5]; bf[nb] = ng + 1; bl[nb] = ng; next }
 FILENAME == ARGV[1] && /^F\t/ {
   line = substr($0, 3)
@@ -363,9 +372,6 @@ FILENAME == ARGV[1] && /^F\t/ {
   next
 }
 FILENAME == ARGV[2] { owner_line($0) }
-# The hub refuses times in the future (a skewed clock or imported history would otherwise block
-# every report), so commit times are clamped to now.
-function clamp(t) { return (t + 0 > now + 0) ? now : t }
 END {
   for (b = 1; b <= nb; b++) {
     feats = ""; sep = ""
@@ -404,6 +410,65 @@ branch_list() {
       if (++n > 500) exit
       print $1 "\t" name "\t" $2 "\t" $3 "\t" (($1 in pushed) ? "true" : "false")
     }' "$TMP/private" "$TMP/pushed" "$TMP/heads" > "$TMP/branchlist"
+}
+
+# DEFAULT_AWK reads, on stdin, three sections each ended by a "\003" line: the default branch's
+# specs/ (ls-tree -r -t -l), its first-parent history (log --name-only, "\001<time>" header lines,
+# newest first; a merge commit is credited with what it brought in) and OWNER_AWK's log. It
+# prints the "features" array body for the folders under specs/ (at most 2000, path order):
+# addedAt and lastChangeAt are the oldest and newest first-parent commits touching the folder
+# (tip_at when none is found), author the one who added its spec.md. Exits 1 on a missing section.
+# shellcheck disable=SC2016 # awk program
+DEFAULT_AWK="$OWNER_AWK$MANIFEST_AWK"'
+function owner_found(d) { who[d] = WHO }
+$0 == "\003" {
+  if (++sec == 2) for (k = 1; k <= n; k++) tgt["specs/" order[k] "/spec.md"] = order[k]
+  next
+}
+sec == 0 {
+  if (!index($0, "\t") || !dirpart(meta($0, m))) next
+  if (F == "") {
+    if (m[2] == "tree" && length(D) <= 255 && D !~ /[[:cntrl:]]/ && !(D in isdir) && n < 2000) { isdir[D] = 1; order[++n] = D }
+  } else if (m[2] == "blob" && (F == "spec.md" || F == "plan.md" || F == "tasks.md")) doc[D, F] = m[3] " " m[4]
+  next
+}
+sec == 1 {
+  if ($0 ~ /^\001[0-9]+$/) { T = substr($0, 2); next }
+  p = $0; sub(/^\001/, "", p)
+  if (dirpart(p) && F != "" && (D in isdir)) { if (!(D in last)) last[D] = T; first[D] = T }
+  next
+}
+sec == 2 { owner_line($0) }
+END {
+  if (sec != 3) exit 1
+  for (k = 1; k <= n; k++) {
+    d = order[k]
+    printf "%s{\"dir\":%s,\"addedAt\":%s,\"lastChangeAt\":%s,\"author\":%s,\"docs\":{\"spec\":%s,\"plan\":%s,\"tasks\":%s}}", \
+      (k > 1 ? "," : ""), js(d), clamp((d in first) ? first[d] : tip_at), clamp((d in last) ? last[d] : tip_at), \
+      authorjs(who[d]), docjs(docref(d, "spec.md")), docjs(docref(d, "plan.md")), docjs(docref(d, "tasks.md"))
+  }
+}'
+
+# default_features: sets FEATURES to ',"features":[...]' (the default branch's feature folders,
+# DEFAULT_AWK), or empty when the hub already has them (GET /config's finishedTip is $base_tip or
+# a descendant of it) or on any failure: the report then goes out without them.
+default_features() {
+  FEATURES=
+  hub_tip=
+  [ -f "$TMP/config" ] && hub_tip=$(tr -d '\n' < "$TMP/config" |
+    sed -n -E 's/.*"finishedTip"[[:space:]]*:[[:space:]]*"([0-9a-f]+)".*/\1/p')
+  if [ -n "$hub_tip" ]; then
+    [ "$hub_tip" = "$base_tip" ] && return 0
+    git merge-base --is-ancestor "$base_tip" "$hub_tip" 2>/dev/null && return 0
+  fi
+  FEATURES=$({
+    git ls-tree -r -t -z -l "$base" -- specs/ && printf '\003\000' &&
+    git log --no-show-signature --first-parent --diff-merges=first-parent -z --format=%x01%ct \
+      --name-only "$base" -- specs/ && printf '\003\000' &&
+    git log --no-show-signature -M -z --diff-filter=AR --format=%x01%ct%x1f%an%x1f%ae --name-status \
+      "$base" -- specs/ && printf '\003\000'
+  } 2>/dev/null | tr '\n\000' '\001\n' | awk -v now="$(date +%s)" -v tip_at="$base_at" "$DEFAULT_AWK") &&
+    FEATURES=",\"features\":[$FEATURES]" || FEATURES=
 }
 
 # generated_at: Unix ms; the last three digits are a per-clone counter so two
@@ -460,8 +525,9 @@ build_manifest() {
         if (length(d) <= 255 && d !~ /[[:cntrl:]]/ && ++n <= 5000) { printf "%s%s", sep, js(d); sep = "," }
       }' "$TMP/basetrees")
     now=$(date +%s); [ "$base_at" -gt "$now" ] 2>/dev/null && base_at=$now
-    default=$(printf '{"branch":%s,"tip":"%s","tipAt":%s,"dirs":[%s]}' \
-      "$(json_str "$DEFAULT")" "$base_tip" "$base_at" "$default")
+    default_features
+    default=$(printf '{"branch":%s,"tip":"%s","tipAt":%s,"dirs":[%s]%s}' \
+      "$(json_str "$DEFAULT")" "$base_tip" "$base_at" "$default" "$FEATURES")
   else
     default=null
   fi

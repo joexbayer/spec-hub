@@ -3,12 +3,12 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
-import { apikey, cloneBranch, cloneFeature, document } from '../../src/db/schema.ts'
+import { apikey, cloneBranch, cloneFeature, document, project } from '../../src/db/schema.ts'
 import { addMember, createProject, createToken, createUser, truncateAll } from '../helpers.ts'
-import { type Hub, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
+import { type Hub, type Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
 
 let hub: Hub
 let seq = 0
@@ -394,5 +394,114 @@ describe('reporter end to end (real hub, real git)', () => {
       expect(r.stderr).not.toContain(token.key)
       expect(r.stderr).toContain('refusing')
     }
+  })
+})
+
+describe('default branch listing (finished features)', () => {
+  const ADDED = Math.floor(Date.now() / 1000) - 20 * 86_400 // the 003-merged branch commit
+  const MERGED = ADDED + 10 * 86_400 // its merge into main
+
+  /**
+   * main gets 001-full (spec, plan, tasks), 002-spec-only and 003-merged (through a --no-ff merge,
+   * back-dated), pushed. Hooks are off while building, so no background report races the push.
+   */
+  function buildMain(repo: Repo) {
+    const git = (args: string[], env?: NodeJS.ProcessEnv) => {
+      const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args], env ? { env } : {})
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+    }
+    const at = (t: number) => ({ GIT_AUTHOR_DATE: `${t} +0000`, GIT_COMMITTER_DATE: `${t} +0000` })
+    repo.write('specs/001-full/spec.md', `${SPEC}\nfull\n`)
+    repo.write('specs/001-full/plan.md', '# Plan\n\nfull\n')
+    repo.write('specs/001-full/tasks.md', '# Tasks\n\n- [ ] T001 full\n')
+    repo.write('specs/002-spec-only/spec.md', `${SPEC}\nspec only\n`)
+    git(['add', 'specs'])
+    git(['commit', '-q', '-m', 'two features'])
+    git(['checkout', '-q', '-b', '003-merged'])
+    repo.write('specs/003-merged/spec.md', `${SPEC}\nmerged\n`)
+    git(['add', 'specs'])
+    git(['commit', '-q', '-m', 'merged feature'], at(ADDED))
+    git(['checkout', '-q', 'main'])
+    git(['merge', '-q', '--no-ff', '-m', 'merge 003-merged', '003-merged'], at(MERGED))
+    git(['branch', '-q', '-D', '003-merged'])
+    git(['push', '-q', 'origin', 'main'])
+  }
+
+  type DefaultFeature = {
+    dir: string
+    addedAt: number
+    lastChangeAt: number
+    author: { name: string; email: string } | null
+    docs: Record<'spec' | 'plan' | 'tasks', { oid: string; size: number } | null>
+  }
+  const printDefault = async (repo: Repo) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    return JSON.parse(r.stdout).default as { tip: string; dirs: string[]; features?: DefaultFeature[] }
+  }
+  const blob = (repo: Repo, path: string) => repo.git('rev-parse', `origin/main:${path}`).trim()
+
+  it('lists every feature on the default branch with its docs, owner and merge time', async () => {
+    const { repo } = await connectedClone()
+    buildMain(repo)
+
+    const features = (await printDefault(repo)).features!
+    expect(features.map((f) => f.dir)).toEqual(['001-full', '002-spec-only', '003-merged'])
+    const [full, specOnly, merged] = features as [DefaultFeature, DefaultFeature, DefaultFeature]
+    expect(full.docs).toEqual({
+      spec: { oid: blob(repo, 'specs/001-full/spec.md'), size: `${SPEC}\nfull\n`.length },
+      plan: { oid: blob(repo, 'specs/001-full/plan.md'), size: '# Plan\n\nfull\n'.length },
+      tasks: { oid: blob(repo, 'specs/001-full/tasks.md'), size: '# Tasks\n\n- [ ] T001 full\n'.length },
+    })
+    expect(specOnly.docs).toEqual({
+      spec: { oid: blob(repo, 'specs/002-spec-only/spec.md'), size: expect.any(Number) },
+      plan: null,
+      tasks: null,
+    })
+    expect(merged.docs.spec?.oid).toBe(blob(repo, 'specs/003-merged/spec.md'))
+    for (const f of features) expect(f.author).toEqual({ name: 'Test Dev', email: 'dev@example.test' })
+
+    // a merge commit is credited with what it brought in: added when it landed on main
+    expect(repo.git('log', '-1', '--format=%ct', 'origin/main').trim()).toBe(String(MERGED))
+    expect(merged).toMatchObject({ addedAt: MERGED, lastChangeAt: MERGED })
+    expect(full.addedAt).toBe(full.lastChangeAt)
+    expect(full.addedAt).toBeGreaterThan(MERGED - 86_400 * 10)
+  })
+
+  it('uploads the default branch documents with a real report, and the commit stays silent', async () => {
+    const { repo, cloneId } = await connectedClone()
+    buildMain(repo)
+    const oids = [
+      'specs/001-full/spec.md',
+      'specs/001-full/plan.md',
+      'specs/001-full/tasks.md',
+      'specs/002-spec-only/spec.md',
+      'specs/003-merged/spec.md',
+    ].map((p) => blob(repo, p))
+
+    repo.git('checkout', '-q', '-b', '004-new')
+    repo.write('specs/004-new/spec.md', SPEC)
+    const out = repo.commit(['specs/004-new/spec.md'], 'new feature')
+    expect(out.stderr).toBe('')
+    expect(out.stdout).not.toContain('spec-hub')
+
+    await waitFor(() => featureRow(cloneId, '004-new', '004-new'), 'feature 004-new')
+    await waitFor(async () => {
+      const rows = await db.select({ oid: document.oid }).from(document).where(inArray(document.oid, oids))
+      return new Set(rows.map((r) => r.oid)).size === oids.length ? true : undefined
+    }, 'default branch documents')
+  })
+
+  it('leaves the listing out while the hub already has the default branch tip', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    expect((await printDefault(repo)).features).toHaveLength(3)
+
+    const tip = repo.git('rev-parse', 'origin/main').trim()
+    await db.update(project).set({ finishedTip: tip, finishedTipAt: new Date() }).where(eq(project.id, p.id))
+    const unchanged = await printDefault(repo)
+    expect(unchanged.tip).toBe(tip)
+    expect(unchanged.dirs).toEqual(['001-full', '002-spec-only', '003-merged'])
+    expect(unchanged).not.toHaveProperty('features')
   })
 })
