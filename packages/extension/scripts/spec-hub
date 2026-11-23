@@ -388,11 +388,14 @@ main_had() {
 }
 
 # BRANCHES_AWK, over the B and F lines and then BASE's log (OWNER_AWK; empty unless an owner
-# was left to look up there): the "branches" array body.
+# was left to look up there): the "branches" array body. A B line's sixth field "remote" marks a
+# branch seen on the shared remote (remote_branches): "remote":true, omitted otherwise.
 # shellcheck disable=SC2016 # awk program
 BRANCHES_AWK="$OWNER_AWK$MANIFEST_AWK"'
 function owner_found(ids,   n, x, k) { n = split(ids, x, " "); for (k = 1; k <= n; k++) fa[x[k]] = WHO }
-FILENAME == ARGV[1] && /^B\t/ { nb++; split($0, x, "\t"); bn[nb] = x[2]; bt[nb] = x[3]; bat[nb] = x[4]; bp[nb] = x[5]; bf[nb] = ng + 1; bl[nb] = ng; next }
+FILENAME == ARGV[1] && /^B\t/ {
+  nb++; split($0, x, "\t"); bn[nb] = x[2]; bt[nb] = x[3]; bat[nb] = x[4]; bp[nb] = x[5]; br[nb] = (x[6] == "remote"); bf[nb] = ng + 1; bl[nb] = ng; next
+}
 FILENAME == ARGV[1] && /^F\t/ {
   line = substr($0, 3)
   for (k = 1; k <= 6; k++) { i = index(line, "\t"); x[k] = substr(line, 1, i - 1); line = substr(line, i + 1) }
@@ -410,7 +413,7 @@ END {
         ",\"docs\":{\"spec\":" docjs(d1[g]) ",\"plan\":" docjs(d2[g]) ",\"tasks\":" docjs(d3[g]) "}" fx[g] "}"
       sep = ","
     }
-    printf "%s{\"name\":%s,\"tip\":\"%s\",\"tipAt\":%s,\"pushed\":%s,\"features\":[%s]}", (b > 1 ? "," : ""), js(bn[b]), bt[b], clamp(bat[b]), bp[b], feats
+    printf "%s{\"name\":%s,\"tip\":\"%s\",\"tipAt\":%s,\"pushed\":%s%s,\"features\":[%s]}", (b > 1 ? "," : ""), js(bn[b]), bt[b], clamp(bat[b]), bp[b], (br[b] ? ",\"remote\":true" : ""), feats
   }
 }'
 
@@ -440,6 +443,52 @@ branch_list() {
       if (++n > 500) exit
       print $1 "\t" name "\t" $2 "\t" $3 "\t" (($1 in pushed) ? "true" : "false")
     }' "$TMP/private" "$TMP/pushed" "$TMP/heads" > "$TMP/branchlist"
+}
+
+# remote_branches: with GET /config's "sharePushedBranches": true and a default branch, append
+# to $TMP/data the B and F lines of the shared remote's branches (spec 004 FR-004 - FR-008): not
+# contained in $base, a commit in the last 14 days, not HEAD, not a local branch's name, no private
+# prefix, at most 255 bytes, newest first, as many as fit in the 500 after the local branches. They
+# are reported under their short name, pushed, B lines marked "remote". The lines depend only on
+# what the key hashes (the list with tips, $base_tip, extra names, private prefixes, and this script
+# for its line format), so $S/remote-cache keeps them until a fetch changes those. Never fetches.
+# Fails open: on any failure $TMP/data keeps only the local lines.
+remote_branches() {
+  [ -n "$base" ] && [ -f "$TMP/config" ] || return 0
+  [ "$(tr -d '\n' < "$TMP/config" |
+    sed -n -E 's/.*"sharePushedBranches"[[:space:]]*:[[:space:]]*(true|false).*/\1/p')" = true ] || return 0
+  room=$(( 500 - $(wc -l < "$TMP/branchlist") ))
+  [ "$room" -gt 0 ] || return 0
+  git for-each-ref --format='%(refname)' refs/heads/ > "$TMP/locals" &&
+    git for-each-ref --no-merged="$base" --sort=-committerdate \
+      --format='%(refname)%09%(objectname)%09%(committerdate:unix)' "refs/remotes/$remote/" > "$TMP/rheads" &&
+    awk -F "$tab" -v pre="refs/remotes/$remote/" -v cut=$(( $(date +%s) - 14 * 86400 )) -v room="$room" '
+      FILENAME == ARGV[1] { if ($0 != "") priv[++np] = $0; next }
+      FILENAME == ARGV[2] { loc[substr($0, 12)] = 1; next }
+      {
+        if (substr($1, 1, length(pre)) != pre || $3 + 0 < cut + 0) next
+        name = substr($1, length(pre) + 1)
+        if (name == "HEAD" || (name in loc) || length(name) > 255) next
+        for (i = 1; i <= np; i++) if (substr(name, 1, length(priv[i])) == priv[i]) next
+        if (++n > room) exit
+        print $1 "\t" name "\t" $2 "\t" $3
+      }' "$TMP/private" "$TMP/locals" "$TMP/rheads" > "$TMP/rlist" || return 0
+  [ -s "$TMP/rlist" ] || return 0
+  key=$({ cat "$TMP/rlist" && printf '%s\n%s\n' "$base_tip" "$extra" && cat "$TMP/private" "$SRC"; } |
+    git hash-object --stdin) && [ -n "$key" ] || return 0
+  if [ "$(sed -n 1p "$S/remote-cache" 2>/dev/null)" = "$key" ]; then
+    sed 1d "$S/remote-cache" > "$TMP/rdata" && cat "$TMP/rdata" >> "$TMP/data"
+    return 0
+  fi
+  while IFS="$tab" read -r ref name tip tip_at; do
+    printf 'B\t%s\t%s\t%s\ttrue\tremote\n' "$name" "$tip" "$tip_at"
+    branch_features "$ref" "$tip_at" || return 0
+  done < "$TMP/rlist" > "$TMP/rdata" || return 0
+  if ! { printf '%s\n' "$key" && cat "$TMP/rdata"; } > "$S/remote-cache.$$" ||
+    ! mv -f "$S/remote-cache.$$" "$S/remote-cache"; then
+    rm -f "$S/remote-cache.$$"
+  fi
+  cat "$TMP/rdata" >> "$TMP/data"
 }
 
 # DEFAULT_AWK reads, on stdin, three sections each ended by a "\003" line: the default branch's
@@ -567,8 +616,10 @@ build_manifest() {
     printf 'B\t%s\t%s\t%s\t%s\n' "$name" "$tip" "$tip_at" "$pushed"
     branch_features "$ref" "$tip_at"
   done < "$TMP/branchlist" > "$TMP/data"
+  remote_branches
   : > "$TMP/owners"
-  # an owner left to look up in the default branch's history (FEATURES_AWK's "\004")
+  # an owner left to look up in the default branch's history (FEATURES_AWK's "\004"), also in
+  # cached remote lines
   if grep -q "$tab$(printf '\004')" "$TMP/data"; then
     git log --no-show-signature -M -z --diff-filter=AR --format=%x01%ct%x1f%an%x1f%ae --name-status \
       "$base" -- specs/ | tr '\n\000' '\001\n' > "$TMP/owners"
