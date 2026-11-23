@@ -797,6 +797,26 @@ describe('carry check by content (FR-014 of 004)', () => {
     expect(await carried(repo, '002-b')).toEqual([])
   })
 
+  it('a branch kept after its squash merge carries nothing once main renamed the folder', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'checkout', '-q', '-b', '060-sq')
+    repo.write('specs/060-sq/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'spec')
+    repo.write('specs/060-sq/spec.md', `${SPEC}\nv1, reviewed\n`)
+    commitAll(repo, 'review')
+    quiet(repo, 'checkout', '-q', 'main')
+    quiet(repo, 'merge', '-q', '--squash', '060-sq')
+    quiet(repo, 'commit', '-q', '-m', '060-sq (#1)')
+    quiet(repo, 'mv', 'specs/060-sq', 'specs/061-sq')
+    quiet(repo, 'commit', '-q', '-m', 'renumber 060 to 061')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+    quiet(repo, 'checkout', '-q', '-b', '062-new')
+    repo.write('specs/062-new/spec.md', SPEC)
+    commitAll(repo, 'brand-new folder')
+    expect(await carried(repo, '060-sq')).toEqual([])
+    expect(await carried(repo, '062-new')).toEqual(['062-new'])
+  })
+
   it('a branch with new text for a landed feature carries it', async () => {
     const { repo } = await connectedClone({ initialFiles: { 'specs/001-a/spec.md': SPEC } })
     quiet(repo, 'checkout', '-q', '-b', '003-c')
@@ -933,6 +953,76 @@ describe('share pushed branches (004)', () => {
     expect(both).toHaveLength(1)
     expect(both[0]).not.toHaveProperty('remote')
     expect(both[0]?.tip).toBe(quiet(repo, 'rev-parse', 'HEAD').trim())
+  })
+
+  it('a merged local branch of the same name does not hide a teammate’s new work on it', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    quiet(repo, 'branch', 'reuse') // at main: contained in origin/main, so never reported
+    push(teammate(sb), 'reuse', '027-reuse')
+    quiet(repo, 'fetch', '-q')
+
+    expect(named((await print(repo)).manifest, 'reuse')).toMatchObject([
+      { remote: true, features: [{ dir: '027-reuse' }] },
+    ])
+  })
+
+  it('a remote branch that a reported local branch tracks under another name is reported once, as the local one', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '025-mcp', '025-mcp')
+    quiet(repo, 'fetch', '-q')
+    quiet(repo, 'checkout', '-q', '-b', 'my-025', '--track', 'origin/025-mcp')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, '025-mcp')).toEqual([])
+    const mine = named(manifest, 'my-025')
+    expect(mine).toMatchObject([{ features: [{ dir: '025-mcp' }] }])
+    expect(mine[0]).not.toHaveProperty('remote')
+  })
+
+  it('a teammate’s branch that changes no feature is not reported', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    const mate = teammate(sb)
+    mate.git('checkout', '-q', '-b', 'chore/code', 'origin/main')
+    mate.write('src/x.ts', 'export {}\n')
+    mate.git('add', 'src')
+    mate.git('commit', '-q', '-m', 'code only')
+    mate.git('push', '-q', 'origin', 'chore/code')
+    push(mate, '028-f', '028-f')
+    quiet(repo, 'fetch', '-q')
+
+    const { manifest } = await print(repo)
+    expect(named(manifest, 'chore/code')).toEqual([])
+    expect(named(manifest, '028-f')).toHaveLength(1)
+  })
+
+  it('turning the option off removes the cache', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '029-c', '029-c')
+    quiet(repo, 'fetch', '-q')
+    await print(repo)
+    expect(existsSync(cacheFile(repo))).toBe(true)
+
+    await db.update(project).set({ sharePushedBranches: false }).where(eq(project.id, p.id))
+    expect(named((await print(repo)).manifest, '029-c')).toEqual([])
+    expect(existsSync(cacheFile(repo))).toBe(false)
+  })
+
+  it('the report summary counts only the clone’s own branches and features', async () => {
+    const { sb, repo, project: p } = await connectedClone()
+    await share(p.id)
+    push(teammate(sb), '030-mate', '030-mate')
+    quiet(repo, 'fetch', '-q')
+    quiet(repo, 'checkout', '-q', '-b', '031-own')
+    repo.write('specs/031-own/spec.md', SPEC)
+    quiet(repo, 'add', 'specs')
+    quiet(repo, 'commit', '-q', '-m', 'own spec')
+
+    const r = await repo.spechub(['report'])
+    expect(r).toMatchObject({ status: 0, stdout: 'Reported 1 features on 1 branches.\n', stderr: '' })
   })
 
   it('a private prefix hides a remote branch', async () => {

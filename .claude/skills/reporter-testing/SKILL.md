@@ -39,11 +39,11 @@ with the script at `.specify/extensions/spec-hub/scripts/spec-hub`).
   trigger it, ssh-signed ones do: `gpg.format ssh` + a throwaway `ssh-keygen` key).
 - **Content-based carry check (FR-012).** A branch kept locally after it landed (rebase, squash,
   deploy copy) is never contained in `origin/main`, and its spec dir differs once main edits the
-  spec again, so tree comparison alone calls it in flight. Dirs that also exist on main are kept only
-  when a document on the branch is a `(path, blob)` pair main never had. `main_had()`/`HAD_AWK` build
+  spec again, so tree comparison alone calls it in flight. A feature line (C: dir on main now; F:
+  not) is kept only when a document on the branch is a `(path, blob)` pair main never had. `main_had()`/`HAD_AWK` build
   those pairs once per report, lazily, via `git log --raw --no-abbrev --no-renames
-  --diff-merges=first-parent -z <base> -- specs/`; `KEEP_AWK` keeps a C line only with a document
-  pair main never had.
+  --diff-merges=first-parent -z <base> -- specs/`; `KEEP_AWK` applies the test to C and F lines (F
+  lines with no documents at all are kept).
 - **Fixture recipes for the carry check.**
   - Deploy branch: a branch that commits a COPY of main's older tree (`git checkout <old-main> -- .`,
     then commit; not a merge), with main moved on twice so no patch matches.
@@ -73,19 +73,27 @@ with the script at `.specify/extensions/spec-hub/scripts/spec-hub`).
 
 ## Remote branches (spec 004)
 
-- The reporter reads `sharePushedBranches` from `/config`. Off: no cache file and a byte-identical
-  manifest.
+- The reporter reads `sharePushedBranches` from `/config`. Off: the cache file is removed and the
+  manifest is byte-identical to a reporter without the feature.
 - `remote_branches` lists `refs/remotes/<remote>/*` that are not merged, from the last 14 days,
-  minus HEAD, names that exist locally and private prefixes, at most 500 in total.
-- B lines with a `remote` marker become `"remote":true` in the manifest.
+  minus HEAD, minus names of REPORTED local branches and their `%(upstream)` (6th field of
+  `$TMP/branchlist`), minus private prefixes. A remote branch with no feature lines is not emitted.
+  Skipped in shallow clones (their history is incomplete, so the content check would be wrong).
+- B lines with a `remote` marker become `"remote":true`; summaries (`count_branches`, `count_dirs`)
+  count only the clone's own branches.
 - Cache `<state>/remote-cache`: a key line (`git hash-object` of the list with tips, the default
-  tip, extra names, private prefixes and the running script) followed by the lines. Written via a
-  temp file and `mv`.
+  tip, extra names, private prefixes and the running script) followed by up to 500 branches' lines,
+  cut to the room left after local branches when appended (room is not in the key, so a new local
+  branch does not force a recompute). Read once via a copy in `$TMP`; written via a temp file and
+  `mv`; not written when the content check's `git log` failed (`$TMP/had-failed`).
+- Content check (FR-014): `main_had` runs whenever any branch has feature lines; `KEEP_AWK` drops a
+  line (C or F) whose present documents are all versions main had, so a squash leftover of a folder
+  main later renamed carries nothing. An F line with no documents at all is kept.
 - Test a teammate: `git clone <sandbox root>/clone-origin.git mate`, commit and push from it, run
   `git fetch` in the connected clone, and set the option with
   `db.update(project).set({ sharePushedBranches: true })`.
 - A scratch `/config` can be served with `python3 -m http.server` from
-  `www/api/r/<slug>/config` (slug of at least 2 characters).
+  `www/api/r/<slug>/config` (slug of at least 2 characters). Stop it afterwards.
 
 ## Measuring report time
 Build a synthetic clone like `specs/001-team-board/validation.md` (124 local branches: 83 merged
@@ -95,7 +103,7 @@ an unreachable `hub_url`, then `hyperfine -N --warmup 1 --runs 5 'sh <script> re
 `GIT_TRACE=<file>` and `grep -c 'trace: built-in'`; `GIT_TRACE2_EVENT` gives per-command time.
 Budget: 1 git call per in-flight branch without `specs/` changes, 3 with (15-200 ms each, the old
 branches cost most), about 10 per report. The content check adds one `git log --raw` per report when
-some branch has a folder also on main.
+any branch has feature lines.
 On macOS `/usr/bin/git` is the Xcode shim: ~13 ms per call before git starts (Homebrew git ~6 ms),
 which is most of a report's time on a repo with many branches. Real-data reference (the pilot, 2026-11-23): 304 unmerged remote branches take ~72 s to check, the
 ~34 changed in the last 14 days ~12 s; with the remote cache a report without a new fetch costs about

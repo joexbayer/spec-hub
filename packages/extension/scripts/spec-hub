@@ -278,9 +278,8 @@ function clamp(t) { return (t + 0 > now + 0) ? now : t }'
 #   F <tab> dir <tab> lastChangeAt <tab> spec <tab> plan <tab> tasks <tab> extra <tab> owner
 # with docs as "oid size" or "-", extra as extrajs(dir) (JSON, no tabs; before owner, which may
 # hold a tab), and owner "\002name\037email" when an add was found since leaving BASE, else "\004<path>" (the spec.md path to look up in BASE's history), or empty
-# without a BASE. When none of those dirs exists in BASE it prints at most 200 lines to stdout.
-# Otherwise it writes all of them to ENVIRON["ONBASE"], with "C" instead of "F" for the dirs
-# that exist in BASE: those may hold only versions BASE already had (KEEP_AWK decides).
+# without a BASE. Dirs that exist in BASE get "C" instead of "F". KEEP_AWK then decides which
+# lines carry a feature.
 # shellcheck disable=SC2016 # awk program
 FEATURES_AWK="$OWNER_AWK$MANIFEST_AWK"'
 function owner_found(d) { added[d] = WHO }
@@ -306,17 +305,10 @@ END {
   for (k = 1; k <= n; k++) {
     d = order[k]
     if (!(d in tree) || ((d in base) && base[d] == tree[d])) continue
-    keep[++c] = d
-    if (d in base) onbase = 1
-  }
-  for (k = 1; k <= c; k++) {
-    d = keep[k]
     if (d in added) a = "\002" added[d]
     else if (has_base) a = "\004" end[d]
     else a = ""
-    l = sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", ((d in base) ? "C" : "F"), d, ((d in at) ? at[d] : tip_at), docref(d, "spec.md"), docref(d, "plan.md"), docref(d, "tasks.md"), extrajs(d), a)
-    if (onbase) print l > ENVIRON["ONBASE"]
-    else if (k <= 200) print l
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", ((d in base) ? "C" : "F"), d, ((d in at) ? at[d] : tip_at), docref(d, "spec.md"), docref(d, "plan.md"), docref(d, "tasks.md"), extrajs(d), a
   }
 }'
 
@@ -332,17 +324,18 @@ src != "" {
   src = ""
 }'
 
-# KEEP_AWK reads HAD_AWK's output, then FEATURES_AWK's ONBASE file. It prints the F lines, and the
-# C lines (as F lines) where one of the dir's documents on REF (spec, plan, tasks, extra) is a
-# version BASE never had, at most 200 (FR-014): a dir holding only versions BASE has had, now or
-# earlier, carries nothing, whatever the commits (squash merges, "take main's tree" commits).
+# KEEP_AWK reads HAD_AWK's output, then FEATURES_AWK's lines. It prints, as F lines, at most 200,
+# those where one of the dir's documents on REF (spec, plan, tasks, extra) is a version BASE never
+# had (FR-014): a dir holding only versions BASE has had, now or earlier, carries nothing, whatever
+# the commits (squash merges, "take main's tree" commits, a squash-merged folder main later renamed
+# or deleted). An F line without any document (a dir BASE does not have now) is kept, as before.
 # shellcheck disable=SC2016 # awk program
 KEEP_AWK='
 BEGIN { nm[4] = "spec.md"; nm[5] = "plan.md"; nm[6] = "tasks.md" }
-function fresh(d, f, oid) { return oid != "" && !(("specs/" d "/" f " " oid) in had) }
+function fresh(d, f, oid) { docs++; return oid != "" && !(("specs/" d "/" f " " oid) in had) }
 FILENAME == ARGV[1] { had[$0] = 1; next }
-substr($0, 1, 2) == "C\t" {
-  split($0, x, "\t"); d = x[2]; new = 0
+{
+  split($0, x, "\t"); d = x[2]; new = 0; docs = 0
   for (k = 4; k <= 6; k++) if (x[k] != "-" && fresh(d, nm[k], substr(x[k], 1, index(x[k], " ") - 1))) new = 1
   e = x[7]
   while (!new && match(e, /"name":"[^"]*","oid":"[^"]*"/)) {
@@ -350,14 +343,14 @@ substr($0, 1, 2) == "C\t" {
     if (fresh(d, y[1], y[2])) new = 1
     e = substr(e, RSTART + RLENGTH)
   }
-  if (!new) next
+  if (!new && (docs || x[1] == "C")) next
   $0 = "F" substr($0, 2)
 }
 ++c <= 200'
 
 # branch_features REF TIP_AT: the F lines of REF (FEATURES_AWK, then KEEP_AWK). One git call for
-# a branch that changed nothing under specs/, three for one that did. The first branch with a dir
-# that also exists on the default branch adds one git log for the report (main_had).
+# a branch that changed nothing under specs/, three for one that did. The first branch with a
+# feature line adds one git log for the report (main_had).
 branch_features() {
   r=$1
   if [ -z "$base" ] || ! git diff -z --name-only "$base...$r" -- specs/ > "$TMP/changed" 2>/dev/null; then
@@ -371,20 +364,22 @@ branch_features() {
     printf '\003\000'
     git log --no-show-signature -M -z --format=%x01%ct%x1f%an%x1f%ae --name-status "${base:+$base..}$r" -- specs/
   } | tr '\n\000' '\001\n' |
-    ONBASE=$TMP/onbase awk -v tip_at="$2" -v has_base="${base:+1}" -v extra_names="$extra" \
-      "$FEATURES_AWK" "$TMP/basetrees" -
-  [ -s "$TMP/onbase" ] || return 0
+    awk -v tip_at="$2" -v has_base="${base:+1}" -v extra_names="$extra" \
+      "$FEATURES_AWK" "$TMP/basetrees" - > "$TMP/flines"
+  [ -s "$TMP/flines" ] || return 0
   main_had
-  awk "$KEEP_AWK" "$TMP/had" "$TMP/onbase"
-  : > "$TMP/onbase"
+  awk "$KEEP_AWK" "$TMP/had" "$TMP/flines"
 }
 
-# main_had: $TMP/had (HAD_AWK), built once per report. Merges count with their first-parent diff,
-# so a version made while merging (a resolved conflict) is one main had too.
+# main_had: $TMP/had (HAD_AWK), built once per report; empty without a base. Merges count with
+# their first-parent diff, so a version made while merging (a resolved conflict) is one main had
+# too. On a failure the set is incomplete (more is kept) and $TMP/had-failed exists.
 main_had() {
   [ -f "$TMP/had" ] && return 0
-  git log --no-show-signature --format= --raw --no-abbrev --no-renames --diff-merges=first-parent -z \
-    "$base" -- specs/ | tr '\n\000' '\001\n' | awk "$HAD_AWK" > "$TMP/had"
+  { [ -z "$base" ] ||
+    git log --no-show-signature --format= --raw --no-abbrev --no-renames --diff-merges=first-parent -z \
+      "$base" -- specs/ || : > "$TMP/had-failed"; } |
+    tr '\n\000' '\001\n' | awk "$HAD_AWK" > "$TMP/had" || : > "$TMP/had-failed"
 }
 
 # BRANCHES_AWK, over the B and F lines and then BASE's log (OWNER_AWK; empty unless an owner
@@ -417,14 +412,15 @@ END {
   }
 }'
 
-# branch_list: $TMP/branchlist, "ref name tip tipAt pushed" (tab-separated) for the local
-# branches not contained in $base, newest first, private prefixes dropped, at most 500.
+# branch_list: $TMP/branchlist, "ref name tip tipAt pushed upstream" (tab-separated, upstream a
+# full ref or empty) for the local branches not contained in $base, newest first, private
+# prefixes dropped, at most 500.
 # Prefixes match the name without refs/heads/, and git always gets the full ref, so a tag
 # with the same name changes neither.
 branch_list() {
   # shellcheck disable=SC2086 # ${base:+...} expands to one word or none
   git for-each-ref ${base:+--no-merged="$base"} --sort=-committerdate refs/heads/ \
-    --format='%(refname)%09%(objectname)%09%(committerdate:unix)' > "$TMP/heads"
+    --format='%(refname)%09%(objectname)%09%(committerdate:unix)%09%(upstream)' > "$TMP/heads"
   # pushed: the tip is contained in some refs/remotes/<remote>/* (multiple --merged are ORed).
   : > "$TMP/pushed"
   if [ -s "$TMP/remote" ]; then
@@ -441,54 +437,66 @@ branch_list() {
       if (length(name) > 255) next
       for (i = 1; i <= np; i++) if (substr(name, 1, length(priv[i])) == priv[i]) next
       if (++n > 500) exit
-      print $1 "\t" name "\t" $2 "\t" $3 "\t" (($1 in pushed) ? "true" : "false")
+      print $1 "\t" name "\t" $2 "\t" $3 "\t" (($1 in pushed) ? "true" : "false") "\t" $4
     }' "$TMP/private" "$TMP/pushed" "$TMP/heads" > "$TMP/branchlist"
 }
 
 # remote_branches: with GET /config's "sharePushedBranches": true and a default branch, append
 # to $TMP/data the B and F lines of the shared remote's branches (spec 004 FR-004 - FR-008): not
-# contained in $base, a commit in the last 14 days, not HEAD, not a local branch's name, no private
-# prefix, at most 255 bytes, newest first, as many as fit in the 500 after the local branches. They
-# are reported under their short name, pushed, B lines marked "remote". The lines depend only on
-# what the key hashes (the list with tips, $base_tip, extra names, private prefixes, and this script
-# for its line format), so $S/remote-cache keeps them until a fetch changes those. Never fetches.
-# Fails open: on any failure $TMP/data keeps only the local lines.
+# contained in $base, a commit in the last 14 days, not HEAD, neither named like nor the upstream
+# of a reported local branch, no private prefix, at most 255 bytes, carrying a feature, newest
+# first, as many as fit in the 500 after the local branches. They are reported under their short
+# name, pushed, B lines marked "remote". The lines (up to 500 branches, cut to the room left when
+# appended) depend only on what the key hashes (the list with tips, $base_tip, extra names, private
+# prefixes, and this script for its line format), so $S/remote-cache keeps them until a fetch
+# changes those. Never fetches. With the option off the cache is removed. Skipped in a shallow clone
+# (main_had would miss what main had). Fails open: on any failure $TMP/data keeps only the local
+# lines.
 remote_branches() {
-  [ -n "$base" ] && [ -f "$TMP/config" ] || return 0
-  [ "$(tr -d '\n' < "$TMP/config" |
-    sed -n -E 's/.*"sharePushedBranches"[[:space:]]*:[[:space:]]*(true|false).*/\1/p')" = true ] || return 0
+  [ -f "$TMP/config" ] || return 0
+  if [ "$(tr -d '\n' < "$TMP/config" |
+    sed -n -E 's/.*"sharePushedBranches"[[:space:]]*:[[:space:]]*(true|false).*/\1/p')" != true ]; then
+    rm -f "$S/remote-cache"
+    return 0
+  fi
+  [ -n "$base" ] || return 0
   room=$(( 500 - $(wc -l < "$TMP/branchlist") ))
   [ "$room" -gt 0 ] || return 0
-  git for-each-ref --format='%(refname)' refs/heads/ > "$TMP/locals" &&
-    git for-each-ref --no-merged="$base" --sort=-committerdate \
+  git for-each-ref --no-merged="$base" --sort=-committerdate \
       --format='%(refname)%09%(objectname)%09%(committerdate:unix)' "refs/remotes/$remote/" > "$TMP/rheads" &&
-    awk -F "$tab" -v pre="refs/remotes/$remote/" -v cut=$(( $(date +%s) - 14 * 86400 )) -v room="$room" '
+    awk -F "$tab" -v pre="refs/remotes/$remote/" -v cut=$(( $(date +%s) - 14 * 86400 )) '
       FILENAME == ARGV[1] { if ($0 != "") priv[++np] = $0; next }
-      FILENAME == ARGV[2] { loc[substr($0, 12)] = 1; next }
+      FILENAME == ARGV[2] { loc[$2] = 1; if ($6 != "") up[$6] = 1; next }
       {
-        if (substr($1, 1, length(pre)) != pre || $3 + 0 < cut + 0) next
+        if (substr($1, 1, length(pre)) != pre || $3 + 0 < cut + 0 || ($1 in up)) next
         name = substr($1, length(pre) + 1)
         if (name == "HEAD" || (name in loc) || length(name) > 255) next
         for (i = 1; i <= np; i++) if (substr(name, 1, length(priv[i])) == priv[i]) next
-        if (++n > room) exit
         print $1 "\t" name "\t" $2 "\t" $3
-      }' "$TMP/private" "$TMP/locals" "$TMP/rheads" > "$TMP/rlist" || return 0
+      }' "$TMP/private" "$TMP/branchlist" "$TMP/rheads" > "$TMP/rlist" || return 0
   [ -s "$TMP/rlist" ] || return 0
-  key=$({ cat "$TMP/rlist" && printf '%s\n%s\n' "$base_tip" "$extra" && cat "$TMP/private" "$SRC"; } |
+  [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ] && return 0
+  key=$({ cat "$TMP/rlist" && printf '%s\n%s\n' "$base_tip" "$extra" && cat "$TMP/private" "$SRC"; } 2>/dev/null |
     git hash-object --stdin) && [ -n "$key" ] || return 0
-  if [ "$(sed -n 1p "$S/remote-cache" 2>/dev/null)" = "$key" ]; then
-    sed 1d "$S/remote-cache" > "$TMP/rdata" && cat "$TMP/rdata" >> "$TMP/data"
-    return 0
+  if cp "$S/remote-cache" "$TMP/rcache" 2>/dev/null && [ "$(sed -n 1p "$TMP/rcache")" = "$key" ]; then
+    sed 1d "$TMP/rcache" > "$TMP/rdata" || return 0
+  else
+    kept=0
+    while [ "$kept" -lt 500 ] && IFS="$tab" read -r ref name tip tip_at; do
+      branch_features "$ref" "$tip_at" > "$TMP/rfeatures" || return 0
+      [ -s "$TMP/rfeatures" ] || continue
+      printf 'B\t%s\t%s\t%s\ttrue\tremote\n' "$name" "$tip" "$tip_at"
+      cat "$TMP/rfeatures"
+      kept=$((kept + 1))
+    done < "$TMP/rlist" > "$TMP/rdata" || return 0
+    # an incomplete had-set keeps landed work: report it this once, never cache it
+    if [ ! -f "$TMP/had-failed" ] &&
+      ! { { printf '%s\n' "$key" && cat "$TMP/rdata"; } 2>/dev/null > "$S/remote-cache.$$" &&
+        mv -f "$S/remote-cache.$$" "$S/remote-cache" 2>/dev/null; }; then
+      rm -f "$S/remote-cache.$$"
+    fi
   fi
-  while IFS="$tab" read -r ref name tip tip_at; do
-    printf 'B\t%s\t%s\t%s\ttrue\tremote\n' "$name" "$tip" "$tip_at"
-    branch_features "$ref" "$tip_at" || return 0
-  done < "$TMP/rlist" > "$TMP/rdata" || return 0
-  if ! { printf '%s\n' "$key" && cat "$TMP/rdata"; } > "$S/remote-cache.$$" ||
-    ! mv -f "$S/remote-cache.$$" "$S/remote-cache"; then
-    rm -f "$S/remote-cache.$$"
-  fi
-  cat "$TMP/rdata" >> "$TMP/data"
+  awk -F "$tab" -v room="$room" '$1 == "B" && ++n > room { exit } { print }' "$TMP/rdata" >> "$TMP/data"
 }
 
 # DEFAULT_AWK reads, on stdin, three sections each ended by a "\003" line: the default branch's
@@ -610,9 +618,8 @@ build_manifest() {
   : > "$TMP/basetrees"
   [ -z "$base" ] || git ls-tree -d -z "$base" specs/ | tr '\n\000' '\001\n' > "$TMP/basetrees"
   branch_list
-  : > "$TMP/onbase"
-  rm -f "$TMP/had"
-  while IFS="$tab" read -r ref name tip tip_at pushed; do
+  rm -f "$TMP/had" "$TMP/had-failed"
+  while IFS="$tab" read -r ref name tip tip_at pushed _; do
     printf 'B\t%s\t%s\t%s\t%s\n' "$name" "$tip" "$tip_at" "$pushed"
     branch_features "$ref" "$tip_at"
   done < "$TMP/branchlist" > "$TMP/data"
@@ -645,11 +652,15 @@ build_manifest() {
   } > "$out"
 }
 
-# count B|F: branches or features in the last manifest.
-count() { grep -c "^$1$tab" "$TMP/data" 2>/dev/null || :; }
+# count_branches: the clone's own branches in the last manifest (not those seen on the remote).
+count_branches() { awk -F "$tab" '$1 == "B" && $6 != "remote" { n++ } END { print n + 0 }' "$TMP/data" 2>/dev/null; }
 
-# count_dirs: distinct feature dirs in the last manifest (a feature on two branches is one).
-count_dirs() { awk -F "$tab" '$1 == "F" && !($2 in s) { s[$2] = 1; n++ } END { print n + 0 }' "$TMP/data" 2>/dev/null; }
+# count_dirs: distinct feature dirs on the clone's own branches in the last manifest (a feature on
+# two branches is one).
+count_dirs() {
+  awk -F "$tab" '$1 == "B" { r = ($6 == "remote") } $1 == "F" && !r && !($2 in s) { s[$2] = 1; n++ }
+    END { print n + 0 }' "$TMP/data" 2>/dev/null
+}
 
 # post_report FILE [retry]: POST the manifest; on 409 upload the missing blobs it names
 # (only those in FILE) and retry once. Sets RESULT to ok | error | refused | unreachable.
@@ -760,7 +771,7 @@ cmd_report() {
   fi
   [ "$quiet" = true ] && exit 0
   case "$RESULT" in
-    ok) printf 'Reported %s features on %s branches.\n' "$(count_dirs)" "$(count B)" ;;
+    ok) printf 'Reported %s features on %s branches.\n' "$(count_dirs)" "$(count_branches)" ;;
     error) printf '%s\n' "$MESSAGE" ;;
     refused) printf '%s\n' "$MESSAGE" ;;
     *) printf 'Hub unreachable; will retry on the next commit.\n' ;;
