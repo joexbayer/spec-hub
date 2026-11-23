@@ -280,7 +280,7 @@ function clamp(t) { return (t + 0 > now + 0) ? now : t }'
 # hold a tab), and owner "\002name\037email" when an add was found since leaving BASE, else "\004<path>" (the spec.md path to look up in BASE's history), or empty
 # without a BASE. When none of those dirs exists in BASE it prints at most 200 lines to stdout.
 # Otherwise it writes all of them to ENVIRON["ONBASE"], with "C" instead of "F" for the dirs
-# that exist in BASE: those may have landed by rebase or cherry-pick (KEEP_AWK decides).
+# that exist in BASE: those may hold only versions BASE already had (KEEP_AWK decides).
 # shellcheck disable=SC2016 # awk program
 FEATURES_AWK="$OWNER_AWK$MANIFEST_AWK"'
 function owner_found(d) { added[d] = WHO }
@@ -320,36 +320,44 @@ END {
   }
 }'
 
-# KEEP_AWK reads FEATURES_AWK's ONBASE file and then the paths of the commits on REF that no commit
-# of BASE matches by patch identity (git log --cherry-pick --right-only --name-only, read
-# through the tr above). It prints the F lines, and the C lines whose dir one of those commits
-# touched (as F lines), at most 200: a dir whose every change reached BASE by rebase or
-# cherry-pick has landed, even when BASE edited it since.
+# HAD_AWK reads git log --raw -z (no renames, through the tr above) over BASE's specs/ and prints
+# "path blob" for both sides of every change: each document version BASE ever had.
 # shellcheck disable=SC2016 # awk program
-KEEP_AWK='
-FILENAME == ARGV[1] { line[++n] = $0; next }
-{
-  p = $0; sub(/^\001/, "", p)
-  if (substr(p, 1, 6) != "specs/") next
-  p = substr(p, 7); j = index(p, "/")
-  if (j) touched[substr(p, 1, j - 1)] = 1
-}
-END {
-  for (k = 1; k <= n; k++) {
-    l = line[k]
-    if (substr(l, 1, 2) == "C\t") {
-      d = substr(l, 3); d = substr(d, 1, index(d, "\t") - 1)
-      if (!(d in touched)) continue
-      l = "F" substr(l, 2)
-    }
-    if (++c > 200) break
-    print l
-  }
+HAD_AWK='
+{ sub(/^\001/, "") }
+substr($0, 1, 1) == ":" { split($0, m, " "); src = m[3]; dst = m[4]; next }
+src != "" {
+  if (src !~ /^0+$/) print $0 " " src
+  if (dst !~ /^0+$/) print $0 " " dst
+  src = ""
 }'
 
+# KEEP_AWK reads HAD_AWK's output, then FEATURES_AWK's ONBASE file. It prints the F lines, and the
+# C lines (as F lines) where one of the dir's documents on REF (spec, plan, tasks, extra) is a
+# version BASE never had, at most 200 (FR-014): a dir holding only versions BASE has had, now or
+# earlier, carries nothing, whatever the commits (squash merges, "take main's tree" commits).
+# shellcheck disable=SC2016 # awk program
+KEEP_AWK='
+BEGIN { nm[4] = "spec.md"; nm[5] = "plan.md"; nm[6] = "tasks.md" }
+function fresh(d, f, oid) { return oid != "" && !(("specs/" d "/" f " " oid) in had) }
+FILENAME == ARGV[1] { had[$0] = 1; next }
+substr($0, 1, 2) == "C\t" {
+  split($0, x, "\t"); d = x[2]; new = 0
+  for (k = 4; k <= 6; k++) if (x[k] != "-" && fresh(d, nm[k], substr(x[k], 1, index(x[k], " ") - 1))) new = 1
+  e = x[7]
+  while (!new && match(e, /"name":"[^"]*","oid":"[^"]*"/)) {
+    split(substr(e, RSTART + 8, RLENGTH - 9), y, "\",\"oid\":\"")
+    if (fresh(d, y[1], y[2])) new = 1
+    e = substr(e, RSTART + RLENGTH)
+  }
+  if (!new) next
+  $0 = "F" substr($0, 2)
+}
+++c <= 200'
+
 # branch_features REF TIP_AT: the F lines of REF (FEATURES_AWK, then KEEP_AWK). One git call for
-# a branch that changed nothing under specs/, three for one that did, four when one of those
-# dirs also exists on the default branch.
+# a branch that changed nothing under specs/, three for one that did. The first branch with a dir
+# that also exists on the default branch adds one git log for the report (main_had).
 branch_features() {
   r=$1
   if [ -z "$base" ] || ! git diff -z --name-only "$base...$r" -- specs/ > "$TMP/changed" 2>/dev/null; then
@@ -366,9 +374,17 @@ branch_features() {
     ONBASE=$TMP/onbase awk -v tip_at="$2" -v has_base="${base:+1}" -v extra_names="$extra" \
       "$FEATURES_AWK" "$TMP/basetrees" -
   [ -s "$TMP/onbase" ] || return 0
-  git log --no-show-signature --cherry-pick --right-only --no-merges -z --name-only --format=%x01 \
-    "$base...$r" -- specs/ | tr '\n\000' '\001\n' | awk "$KEEP_AWK" "$TMP/onbase" -
+  main_had
+  awk "$KEEP_AWK" "$TMP/had" "$TMP/onbase"
   : > "$TMP/onbase"
+}
+
+# main_had: $TMP/had (HAD_AWK), built once per report. Merges count with their first-parent diff,
+# so a version made while merging (a resolved conflict) is one main had too.
+main_had() {
+  [ -f "$TMP/had" ] && return 0
+  git log --no-show-signature --format= --raw --no-abbrev --no-renames --diff-merges=first-parent -z \
+    "$base" -- specs/ | tr '\n\000' '\001\n' | awk "$HAD_AWK" > "$TMP/had"
 }
 
 # BRANCHES_AWK, over the B and F lines and then BASE's log (OWNER_AWK; empty unless an owner
@@ -546,6 +562,7 @@ build_manifest() {
   [ -z "$base" ] || git ls-tree -d -z "$base" specs/ | tr '\n\000' '\001\n' > "$TMP/basetrees"
   branch_list
   : > "$TMP/onbase"
+  rm -f "$TMP/had"
   while IFS="$tab" read -r ref name tip tip_at pushed; do
     printf 'B\t%s\t%s\t%s\t%s\n' "$name" "$tip" "$tip_at" "$pushed"
     branch_features "$ref" "$tip_at"

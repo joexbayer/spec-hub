@@ -741,3 +741,80 @@ describe('default branch listing (finished features)', () => {
     expect(extra?.map((e) => e.name)).toEqual(['preview.md'])
   })
 })
+
+describe('carry check by content (FR-014 of 004)', () => {
+  /** git with hooks off, so no background report races the history being built. */
+  const quiet = (repo: Repo, ...args: string[]) => {
+    const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args])
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+    return r.stdout
+  }
+  const commitAll = (repo: Repo, message: string) => {
+    quiet(repo, 'add', '-A', 'specs')
+    quiet(repo, 'commit', '-q', '-m', message)
+  }
+  const carried = async (repo: Repo, branch: string) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    const m = JSON.parse(r.stdout) as { branches: { name: string; features: { dir: string }[] }[] }
+    return m.branches.find((b) => b.name === branch)?.features.map((f) => f.dir)
+  }
+
+  it('a deploy branch that takes an older main tree carries nothing', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'branch', 'deploy')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'add 001')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv2\n`)
+    commitAll(repo, 'edit 001')
+    const old = quiet(repo, 'rev-parse', 'HEAD').trim()
+    repo.write('specs/001-a/spec.md', `${SPEC}\nv3\n`)
+    commitAll(repo, 'edit 001 again')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+
+    // "take main's tree at <old>": one commit, not a merge, so no main commit has its patch
+    quiet(repo, 'checkout', '-q', 'deploy')
+    quiet(repo, 'checkout', old, '--', '.')
+    quiet(repo, 'commit', '-q', '-m', `take main's tree at ${old}`)
+    expect(quiet(repo, 'show', 'deploy:specs/001-a/spec.md')).toBe(`${SPEC}\nv2\n`)
+    expect(await carried(repo, 'deploy')).toEqual([])
+  })
+
+  it('a branch kept after its squash merge carries nothing, even after main edits the spec', async () => {
+    const { repo } = await connectedClone()
+    quiet(repo, 'checkout', '-q', '-b', '002-b')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1\n`)
+    commitAll(repo, 'spec')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1, reviewed\n`)
+    commitAll(repo, 'review')
+    quiet(repo, 'checkout', '-q', 'main')
+    quiet(repo, 'merge', '-q', '--squash', '002-b')
+    quiet(repo, 'commit', '-q', '-m', '002-b (#1)')
+    repo.write('specs/002-b/spec.md', `${SPEC}\nv1, reviewed\n\n**Status**: Shipped\n`)
+    commitAll(repo, 'status')
+    quiet(repo, 'push', '-q', 'origin', 'main')
+    expect(await carried(repo, '002-b')).toEqual([])
+  })
+
+  it('a branch with new text for a landed feature carries it', async () => {
+    const { repo } = await connectedClone({ initialFiles: { 'specs/001-a/spec.md': SPEC } })
+    quiet(repo, 'checkout', '-q', '-b', '003-c')
+    repo.write('specs/001-a/spec.md', `${SPEC}\nNew requirement.\n`)
+    commitAll(repo, 'change landed 001')
+    expect(await carried(repo, '003-c')).toEqual(['001-a'])
+  })
+
+  it('new text in a configured extra document alone carries a landed feature', async () => {
+    const { repo } = await connectedClone({
+      initialFiles: { 'specs/001-a/spec.md': SPEC, 'specs/001-a/preview.md': '# Preview\n' },
+    })
+    writeFileSync(
+      join(repo.dir, CONFIG),
+      `${readFileSync(join(repo.dir, CONFIG), 'utf8')}documents: preview.md\n`,
+    )
+    quiet(repo, 'checkout', '-q', '-b', '004-d')
+    repo.write('specs/001-a/preview.md', '# Preview\n\nNew screen.\n')
+    commitAll(repo, 'preview for 001')
+    expect(await carried(repo, '004-d')).toEqual(['001-a'])
+  })
+})
