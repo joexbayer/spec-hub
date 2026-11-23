@@ -28,6 +28,7 @@ export const projectFields = z.object({
   name: projectName,
   defaultBranch: refName,
   numbering,
+  sharePushedBranches: z.boolean(),
 })
 export type ProjectFields = z.infer<typeof projectFields>
 

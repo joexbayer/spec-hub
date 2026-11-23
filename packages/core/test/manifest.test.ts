@@ -37,6 +37,15 @@ describe('ReportManifest', () => {
     expect(ok({ ...fixture(), default: null })).toBe(true)
   })
 
+  it('accepts remote: true on a branch, rejects remote: false, accepts it absent', () => {
+    const m = fixture()
+    const b = m.branches[0]
+    if (!b) throw new Error('fixture')
+    expect(ok({ ...m, branches: [{ ...b, remote: true }] })).toBe(true)
+    expect(ok({ ...m, branches: [{ ...b, remote: false }] })).toBe(false)
+    expect(ok(m)).toBe(true)
+  })
+
   it('rejects over-limit collections', () => {
     const m = fixture()
     const b = m.branches[0]
