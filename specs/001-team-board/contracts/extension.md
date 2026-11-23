@@ -19,6 +19,8 @@ project: pilot
 remote: origin            # optional, default origin
 ```
 
+The optional `documents` key (extra files shown as tabs) is described in "Extra documents" of `../../005-finished-features/contracts/reporter.md`.
+
 ## Per-clone and per-person state (never in the repository)
 
 | Where | What |

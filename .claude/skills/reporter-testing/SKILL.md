@@ -1,6 +1,6 @@
 ---
 name: reporter-testing
-description: How to change and test the POSIX sh reporter (packages/extension/scripts/spec-hub) — end-to-end tests against an in-process hub, git path quoting, macOS ref-name limits, hook timing, default-branch listing (finishedTip, default.features). Use when editing the reporter script, adding reporter commands, writing or debugging tests in apps/server/test/reporter/, or when a feature folder with odd characters doesn't show up on the board.
+description: How to change and test the POSIX sh reporter (packages/extension/scripts/spec-hub) — end-to-end tests against an in-process hub, git path quoting, macOS ref-name limits, hook timing, default-branch listing (finishedTipAt, default.features), extra documents (documents:). Use when editing the reporter script, adding reporter commands, writing or debugging tests in apps/server/test/reporter/, or when a feature folder with odd characters doesn't show up on the board.
 ---
 
 # Testing the reporter
@@ -55,10 +55,13 @@ with the script at `.specify/extensions/spec-hub/scripts/spec-hub`).
 
 ## Default-branch listing (spec 005)
 
-- The reporter adds `default.features` only when `GET /config`'s `finishedTip` is neither its `<remote>/<default>` tip nor a descendant of it (`git merge-base --is-ancestor`); see it with `sh <script> report --print-manifest` (only GET /config is sent).
+- The reporter leaves `default.features` out when `GET /config`'s `finishedTipAt` (Unix seconds) is set and the clone's `<remote>/<default>` commit time is not newer (the hub's own rule). Shallow clones (`git rev-parse --is-shallow-repository`) never send it. See it with `sh <script> report --print-manifest` (only GET /config is sent).
 - Landing time comes from `git log --first-parent --diff-merges=first-parent --name-only`: a merge commit is credited with the folders it brought in, so `addedAt` is the merge time, not the branch commit's. Read through the usual tr, header lines are `^\001[0-9]+$` and names may start with `\001`.
 - Build test history with `git -c core.hooksPath=/dev/null ...` when a background report must not race the push you are about to make.
-- `connect` reports at once and sets the project's `defaultTipAt`/`finishedTipAt` to the initial commit's time (now). A test history back-dated before that is ignored by the hub as older: null `defaultTip`, `defaultTipAt`, `finishedTip`, `finishedTipAt` on the project (the e2e tests' `forgetTips(projectId)`) before the report you assert on.
+- `connect` reports at once and sets the project's `finishedTipAt` to now. Tests that assert a listing call `forgetTips(projectId)` first, and build branches with hooks off (`git -c core.hooksPath=/dev/null`) when a background report must not store the listing early.
+- Extra documents: `documents:` is read once per report (`extra_names()`, validated in sh) and passed to the awk programs as `-v extra_names=…`. The intermediate F line carries an `extra` JSON field BEFORE the owner field (owner is "rest of line"). A repo without the key must produce a byte-identical manifest: compare `report --print-manifest` with the old script, `generatedAt` normalised.
+- Vitest `-t "extra"` also matches the hook-timing test ("prints nothing extra"); use a narrower pattern.
+- The hook-timing test (median < 150 ms) flakes under heavy machine load; re-run it alone before suspecting a change that doesn't touch `cmd_hook`.
 - The first report after the default branch moves runs two extra full-history `git log`s over `specs/` (about 1 s on a 8,000-commit repo); they are skipped once the hub has the tip.
 
 ## Measuring report time
