@@ -162,4 +162,46 @@ describe('FeaturePage with a finished feature', () => {
     })
     expect(await screen.findByText(/Documents not reported yet/)).toBeTruthy()
   })
+
+  it('shows an unknown landing time instead of the first-seen time', async () => {
+    renderPage({
+      entry: null,
+      landed: { ...landed, finished: { ...finished, landedAt: null } },
+      versions: [],
+      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+    })
+    expect(await screen.findByText('landing time unknown')).toBeTruthy()
+    expect(screen.getByText('unknown')).toBeTruthy()
+  })
+
+  it('shows the landed time in the header', async () => {
+    renderPage({
+      entry: null,
+      landed,
+      versions: [],
+      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+    })
+    expect(await screen.findByText(/^landed .*ago$/)).toBeTruthy()
+  })
+
+  it('does not offer the default branch twice', async () => {
+    const version = {
+      branch: 'main',
+      carrierUserId: 'u1',
+      pushed: false,
+      lastChangeAt: 5,
+      spec: null,
+      plan: null,
+      tasks: null,
+    }
+    renderPage({
+      entry: null,
+      landed,
+      versions: [version],
+      shown: { branch: 'main', docs: { spec: null, plan: null, tasks: null } },
+    })
+    await screen.findByText('Finished title')
+    // one choice means a plain chip, not a select
+    expect(screen.queryByRole('combobox', { name: 'Branch' })).toBeNull()
+  })
 })

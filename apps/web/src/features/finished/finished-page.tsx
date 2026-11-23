@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { isFinal } from '@/features/board/board-query'
 import { type ApiError, json } from '@/lib/api'
 
-type FinishedResponse = { defaultBranch: string; finished: FinishedFeature[] }
+type FinishedResponse = { defaultBranch: string; finishedTipAt: number | null; finished: FinishedFeature[] }
 export type FinishedFilters = { q?: string; owner?: string }
 
 const EVERYONE = 'everyone'
@@ -62,7 +62,7 @@ export function FinishedList({
           />
         </div>
         <Select
-          value={owner && owners.some(([k]) => k === owner) ? owner : EVERYONE}
+          value={owner || EVERYONE}
           onValueChange={(v) => set({ q, owner: v === EVERYONE ? undefined : v })}
         >
           <SelectTrigger size="sm" aria-label="Owner" className="h-8 w-40 bg-card">
@@ -70,6 +70,9 @@ export function FinishedList({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={EVERYONE}>Everyone</SelectItem>
+            {owner && !owners.some(([k]) => k === owner) ? (
+              <SelectItem value={owner}>{owner}</SelectItem>
+            ) : null}
             {owners.map(([key, o]) => (
               <SelectItem key={key} value={key}>
                 {ownerName(o)}
@@ -163,7 +166,15 @@ export function FinishedPage({
     <div className="mx-auto w-full max-w-[1200px] space-y-6 p-4 md:p-6">
       <PageHeader
         title="Finished features"
-        description={data ? `${data.finished.length} on ${data.defaultBranch}` : slug}
+        description={
+          data
+            ? `${data.finished.length} on ${data.defaultBranch}${
+                data.finishedTipAt === null
+                  ? ''
+                  : ` · as of ${formatDistanceToNow(data.finishedTipAt, { addSuffix: true })}`
+              }`
+            : slug
+        }
       />
       {query.isPending ? (
         <Skeleton className="h-96 w-full rounded-xl" role="status" aria-label="Loading finished features" />

@@ -115,7 +115,7 @@ Contracts: the "Review follow-ups" sections of contracts/reporter.md, web.md and
 
 ### Wave 6 (parallel, deps: T014,T015,T017)
 
-- [ ] T016 [P] [deps: T014] @implementation Web fixes: finished page header "as of <relative>" from `finishedTipAt`, response type without `members` (W2); recently landed rows and landed pipeline cards link with `?branch=<defaultBranch>` from the board response (W4); feature page: unknown landing time shows as unknown (W9), the landed time also in a finished-only header, number from `landed.finished.number`, no duplicate picker entry when a branch is named like the default branch; finished page: an `?owner=` not in the list shows as the selected value. Tests for each.
+- [X] T016 [P] [deps: T014] @implementation Web fixes: finished page header "as of <relative>" from `finishedTipAt`, response type without `members` (W2); recently landed rows and landed pipeline cards link with `?branch=<defaultBranch>` from the board response (W4); feature page: unknown landing time shows as unknown (W9), the landed time also in a finished-only header, number from `landed.finished.number`, no duplicate picker entry when a branch is named like the default branch; finished page: an `?owner=` not in the list shows as the selected value. Tests for each.
 - [ ] T018 [P] [deps: T017] @implementation Server extra documents: `extra_docs` jsonb (`[{name, oid, size}]`, default `[]`) on `clone_feature` and `landed_feature`, folded into migration `0005_finished_features` (regenerated; never applied outside test databases); ingest stores them for branch features and default features; `ShownVersion.extra` for the shown version (branch or default branch) via `shownDocs`. Tests in ingest and board tests.
 
 ### Wave 7 (parallel, deps: T016,T018)

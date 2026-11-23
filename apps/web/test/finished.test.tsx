@@ -35,7 +35,7 @@ const finished = [
   f('012-alpha', '012', 'Alpha 003 mention', 'bo', { landedAt: null, reported: false }),
   f('001-beta', '001', 'Beta', 'ana', { tasks: { done: 2, total: 4 }, inFlight: true }),
 ]
-const data = { defaultBranch: 'main', finished }
+const data = { defaultBranch: 'main', finishedTipAt: null as number | null, finished }
 const titles = () => screen.getAllByRole('link').map((a) => a.textContent)
 
 const view = (props: { q?: string; owner?: string; data?: typeof data }) =>
@@ -79,7 +79,7 @@ test('owner filter narrows', () => {
 })
 
 test('empty states', () => {
-  view({ data: { defaultBranch: 'main', finished: [] } })
+  view({ data: { ...data, finished: [] } })
   expect(screen.getByText('No finished features yet')).toBeTruthy()
 })
 
@@ -87,4 +87,10 @@ test('no match offers clearing filters', () => {
   view({ q: 'zzz' })
   expect(screen.getByText('No finished feature matches')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Clear filters' })).toBeTruthy()
+})
+
+test('an owner that matches nobody stays selected', () => {
+  view({ owner: 'ghost' })
+  expect(screen.getByRole('combobox', { name: 'Owner' }).textContent).toBe('ghost')
+  expect(screen.getByText('No finished feature matches')).toBeTruthy()
 })

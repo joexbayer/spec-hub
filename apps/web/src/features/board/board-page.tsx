@@ -53,7 +53,7 @@ export function BoardPage({
   onViewChange: (v: BoardView) => void
 }) {
   const me = useQuery(meQuery)
-  const { board: query, lastReportAt } = useBoard(slug)
+  const { board: query, lastReportAt, defaultBranch } = useBoard(slug)
   const board = query.data
   const name = me.data?.projects.find((p) => p.slug === slug)?.name ?? slug
   const blockedBy = useMemo(() => (board ? buildDependencyGraph(board).blockedBy : new Map()), [board])
@@ -171,7 +171,7 @@ export function BoardPage({
                   blockedBy={blockedBy}
                 />
               ) : view === 'pipeline' ? (
-                <PipelineView slug={slug} board={board} />
+                <PipelineView slug={slug} board={board} defaultBranch={defaultBranch} />
               ) : (
                 <WorkMapView slug={slug} board={board} lastReportAt={lastReportAt} />
               )}
@@ -180,6 +180,7 @@ export function BoardPage({
               slug={slug}
               board={board}
               lastReportAt={lastReportAt}
+              defaultBranch={defaultBranch}
               className={view === 'list' ? undefined : 'grid items-start gap-4 space-y-0 lg:grid-cols-3'}
             />
           </div>
@@ -226,7 +227,15 @@ function pipelineElements(board: Board): { nodes: Node[]; edges: Edge[] } {
   return { nodes, edges }
 }
 
-function PipelineView({ slug, board }: { slug: string; board: Board }) {
+function PipelineView({
+  slug,
+  board,
+  defaultBranch,
+}: {
+  slug: string
+  board: Board
+  defaultBranch?: string
+}) {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<string | null>(null)
   const { nodes, edges } = useMemo(() => pipelineElements(board), [board])
@@ -256,6 +265,7 @@ function PipelineView({ slug, board }: { slug: string; board: Board }) {
                   navigate({
                     to: '/p/$slug/f/$dir',
                     params: { slug, dir: (n.data as { landed: { dir: string } }).landed.dir },
+                    search: defaultBranch ? { branch: defaultBranch } : undefined,
                   })
               }}
             />

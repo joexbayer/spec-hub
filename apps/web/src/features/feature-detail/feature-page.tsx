@@ -178,7 +178,7 @@ export function FeaturePage({
   }
 
   const { entry, landed, versions, shown } = data
-  const number = entry?.number ?? dir.split('-')[0]
+  const number = entry?.number ?? landed?.finished.number ?? dir.split('-')[0]
   const title = entry?.title ?? landed?.finished.title ?? titleFromDir(dir)
   const isLanded = landed !== null && entry === null
   const shownBranch = shown?.branch
@@ -197,7 +197,9 @@ export function FeaturePage({
   const openClarifications = entry?.openClarifications ?? 0
   const choices = [
     ...versions.map((v) => ({ branch: v.branch, label: v.branch })),
-    ...(landed?.finished.reported ? [{ branch: landed.branch, label: `${landed.branch} (landed)` }] : []),
+    ...(landed?.finished.reported && !versions.some((v) => v.branch === landed.branch)
+      ? [{ branch: landed.branch, label: `${landed.branch} (landed)` }]
+      : []),
   ]
   const documentsNotReported = landed !== null && !landed.finished.reported && versions.length === 0
   const carriers = [...new Set(versions.map((v) => v.carrierUserId))]
@@ -238,6 +240,11 @@ export function FeaturePage({
             {isLanded ? (
               <span className="inline-flex h-5 items-center gap-1 rounded-md border border-phase-landed/40 bg-phase-landed/10 px-1.5 text-xs">
                 <CheckCircle2 aria-hidden className="size-3 text-phase-landed" /> Landed
+              </span>
+            ) : null}
+            {isLanded && fin ? (
+              <span className="text-xs text-muted-foreground">
+                {fin.landedAt === null ? 'landing time unknown' : `landed ${relative(fin.landedAt)}`}
               </span>
             ) : null}
             {entry || fin ? (
@@ -393,7 +400,9 @@ export function FeaturePage({
         <RailSection icon={<Clock />} title="Time">
           <div className="space-y-2">
             {landed ? (
-              <Fact label="Landed">{relative(landed.finished.landedAt ?? landed.firstSeenAt)}</Fact>
+              <Fact label="Landed">
+                {landed.finished.landedAt === null ? 'unknown' : relative(landed.finished.landedAt)}
+              </Fact>
             ) : null}
             <Fact label="Last change">{lastChangeAt ? relative(lastChangeAt) : '—'}</Fact>
           </div>

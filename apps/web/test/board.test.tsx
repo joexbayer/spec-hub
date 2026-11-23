@@ -1,6 +1,9 @@
 import type { Board, BoardEntry } from '@spec-hub/core'
-import { render, screen, within } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
+
+afterEach(cleanup)
+
 import { BoardStats } from '@/features/board/board-stats'
 import { FeatureList } from '@/features/board/feature-list'
 import { SideRail } from '@/features/board/side-rail'
@@ -11,12 +14,17 @@ vi.mock('@tanstack/react-router', () => ({
     children,
     className,
     params,
+    search,
   }: {
     children: React.ReactNode
     className?: string
     params?: { slug: string; dir: string }
+    search?: { branch: string }
   }) => (
-    <a href={params ? `/p/${params.slug}/f/${params.dir}` : '/'} className={className}>
+    <a
+      href={params ? `/p/${params.slug}/f/${params.dir}${search ? `?branch=${search.branch}` : ''}` : '/'}
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -82,4 +90,16 @@ test('a recently landed row links to its feature page', () => {
   )
   const link = screen.getByText('Delta').closest('a')
   expect(link?.getAttribute('href')).toBe('/p/demo/f/004-delta')
+})
+
+test('a recently landed row opens the default branch version when known', () => {
+  render(
+    <SideRail
+      slug="demo"
+      board={{ ...board, recentlyLanded: [{ dir: '004-delta', firstSeenAt: Date.now(), baseline: false }] }}
+      lastReportAt={{}}
+      defaultBranch="main"
+    />,
+  )
+  expect(screen.getByText('Delta').closest('a')?.getAttribute('href')).toBe('/p/demo/f/004-delta?branch=main')
 })
