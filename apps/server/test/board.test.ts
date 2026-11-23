@@ -51,6 +51,7 @@ async function carry(
     authorEmail?: string
     lastChangeAt?: Date
     tipAt?: Date
+    remote?: boolean
   },
 ) {
   const id = crypto.randomUUID()
@@ -62,9 +63,14 @@ async function carry(
     generatedAt: Date.now(),
     reportedAt: opts.reportedAt,
   })
-  await db
-    .insert(cloneBranch)
-    .values({ cloneId: id, name: opts.branch, tip: 'abc', tipAt: opts.tipAt ?? new Date(), pushed: true })
+  await db.insert(cloneBranch).values({
+    cloneId: id,
+    name: opts.branch,
+    tip: 'abc',
+    tipAt: opts.tipAt ?? new Date(),
+    pushed: true,
+    remote: opts.remote ?? false,
+  })
   await db.insert(cloneFeature).values({
     cloneId: id,
     branch: opts.branch,
@@ -439,5 +445,59 @@ describe('owner by email (spoofing)', () => {
     expect(owner('020-c')).toMatchObject({ kind: 'member', userId: carol.id })
     expect(owner('021-s')).toEqual({ kind: 'git-name', name: 'Someone' })
     expect(owner('022-d')).toMatchObject({ kind: 'member', userId: dave.id })
+  })
+})
+
+describe('remote copies', () => {
+  const bobEmail = 'bob.git@laptop.test'
+  const branchesOf = async (p: TestProject, cookie: { cookie: string }) => {
+    const { board } = await json(request(`/api/projects/${p.slug}/board`, { headers: cookie }))
+    return board.inFlight.find((e: { dir: string }) => e.dir === '152-x')
+  }
+
+  it("shows one branch carried by bob when his local branch and alice's remote copy agree", async () => {
+    const { a, b, p, cookie } = await setup()
+    await carry(p, a, {
+      email: 'a@laptop.test',
+      reportedAt: new Date(),
+      branch: '152-x',
+      dir: '152-x',
+      authorEmail: bobEmail,
+      remote: true,
+    })
+    await carry(p, b, { email: bobEmail, reportedAt: new Date(), branch: '152-x', dir: '152-x' })
+    const e = await branchesOf(p, cookie)
+    expect(e.branches).toHaveLength(1)
+    expect(e.branches[0]).toMatchObject({ branch: '152-x', carrierUserId: b.id })
+  })
+
+  it('shows a branch reported remote by two clones once, carried by nobody, owned by its author', async () => {
+    const { a, b, c, p, cookie } = await setup()
+    const d = await createUser('dave')
+    await addMember(p, d)
+    await carry(p, a, {
+      email: 'a@laptop.test',
+      reportedAt: new Date(),
+      branch: '152-x',
+      dir: '152-x',
+      authorEmail: bobEmail,
+      remote: true,
+    })
+    await carry(p, c, {
+      email: 'c@laptop.test',
+      reportedAt: new Date(),
+      branch: '152-x',
+      dir: '152-x',
+      authorEmail: bobEmail,
+      remote: true,
+    })
+    await carry(p, b, { email: bobEmail, reportedAt: new Date(), branch: 'other', dir: '153-y' })
+    const e = await branchesOf(p, cookie)
+    expect(e.branches).toHaveLength(1)
+    expect(e.branches[0]).toMatchObject({ branch: '152-x', carrierUserId: null })
+    expect(e.owner).toMatchObject({ kind: 'member', userId: b.id })
+    const feature = await json(request('/api/projects/acme/features/152-x', { headers: cookie }))
+    expect(feature.versions).toHaveLength(1)
+    expect(feature.versions[0]).toMatchObject({ branch: '152-x', carrierUserId: null })
   })
 })

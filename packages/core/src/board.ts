@@ -63,9 +63,13 @@ export const compareVersions = (
 
 // A remote copy yields to a local branch of the same name; of several remote copies of one name, the
 // newest stays (ties: smaller carrier).
-function dropRemoteCopies(group: FeatureVersion[]): FeatureVersion[] {
+/** One folder's versions without redundant remote copies: a remote copy yields to a local branch of
+ * its name, and of several remote copies of one name the board's first (newest) is kept (FR-011). */
+export function dropRemoteCopies<
+  V extends Pick<FeatureVersion, 'remote' | 'branch' | 'lastChangeAt' | 'carrierUserId'>,
+>(group: V[]): V[] {
   const localNames = new Set(group.filter((v) => !v.remote).map((v) => v.branch))
-  const remote = new Map<string, FeatureVersion>()
+  const remote = new Map<string, V>()
   for (const v of group) {
     if (!v.remote || localNames.has(v.branch)) continue
     const kept = remote.get(v.branch)
