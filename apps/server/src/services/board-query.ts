@@ -9,7 +9,7 @@ import type {
   MemberIdentity,
 } from '@spec-hub/core'
 import { activityAt, buildBoard, buildFinished, compareVersions, finishedFeature } from '@spec-hub/core'
-import { and, eq, inArray, isNotNull, ne } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { Db } from '../db/client.ts'
 import {
@@ -45,8 +45,15 @@ export interface ShownDoc {
   facts: DocFacts
 }
 
+export interface ExtraRef {
+  name: string
+  oid: string
+  size: number
+}
+
 export interface ShownVersion {
   branch: string
+  extra: { name: string; doc: ShownDoc }[]
   docs: Record<DocKind, ShownDoc | null>
 }
 
@@ -133,6 +140,7 @@ async function loadVersionRows(db: Db, projectId: string) {
       carrierUserId: clone.userId,
       authorName: cloneFeature.authorName,
       authorEmail: cloneFeature.authorEmail,
+      extraDocs: cloneFeature.extraDocs,
       spec: docColumns(specDoc as unknown as typeof document),
       plan: docColumns(planDoc as unknown as typeof document),
       tasks: docColumns(tasksDoc as unknown as typeof document),
@@ -223,6 +231,7 @@ async function loadLandedRows(db: Db, projectId: string, dir?: string) {
     )
   return rows.map(({ landed: l, spec, plan, tasks }) => ({
     docs: { spec, plan, tasks },
+    extraDocs: l.extraDocs,
     row: {
       dir: l.dir,
       firstSeenAt: l.firstSeenAt.getTime(),
@@ -299,38 +308,45 @@ export async function loadFinished(
 }
 
 // Loads the contents of the given documents; a missing row, or one without a stored oid, is no document.
+// Extra documents are read by their oid alone; one with no stored row (too large, marker missing) is left out.
 async function shownDocs(
   db: Db,
   projectId: string,
   branch: string,
   docs: Record<DocKind, DocRow | null>,
+  extraRefs: ExtraRef[],
 ): Promise<ShownVersion> {
-  const oids = KINDS.map((k) => docs[k]?.oid ?? null).filter((o): o is string => o !== null)
-  const contents =
+  const oids = [
+    ...KINDS.map((k) => docs[k]?.oid ?? null).filter((o): o is string => o !== null),
+    ...extraRefs.map((e) => e.oid),
+  ]
+  const rows =
     oids.length === 0
       ? []
       : await db
-          .select({ oid: document.oid, content: document.content })
+          .select({ ...docColumns(document), content: document.content })
           .from(document)
-          .where(and(eq(document.projectId, projectId), inArray(document.oid, oids), isNotNull(document.oid)))
-  const contentByOid = new Map(contents.map((c) => [c.oid, c.content]))
-  const shown = {} as Record<DocKind, ShownDoc | null>
-  for (const k of KINDS) {
-    const row = docs[k]
-    const facts = factsOf(row)
-    shown[k] =
-      !row || row.oid === null || row.size === null || !facts
-        ? null
-        : {
-            oid: row.oid,
-            size: row.size,
-            content: facts.tooLarge ? null : (contentByOid.get(row.oid) ?? null),
-            tooLarge: facts.tooLarge,
-            unreadable: facts.unreadable,
-            facts,
-          }
+          .where(and(eq(document.projectId, projectId), inArray(document.oid, oids)))
+  const rowByOid = new Map(rows.map((r) => [r.oid, r]))
+  const shownDoc = (row: DocRow | null | undefined): ShownDoc | null => {
+    const facts = factsOf(row ?? null)
+    if (!row || row.oid === null || row.size === null || !facts) return null
+    return {
+      oid: row.oid,
+      size: row.size,
+      content: facts.tooLarge ? null : (rowByOid.get(row.oid)?.content ?? null),
+      tooLarge: facts.tooLarge,
+      unreadable: facts.unreadable,
+      facts,
+    }
   }
-  return { branch, docs: shown }
+  const shown = {} as Record<DocKind, ShownDoc | null>
+  for (const k of KINDS) shown[k] = shownDoc(docs[k])
+  const extra = extraRefs.flatMap((e) => {
+    const doc = shownDoc(rowByOid.get(e.oid))
+    return doc ? [{ name: e.name, doc }] : []
+  })
+  return { branch, extra, docs: shown }
 }
 
 export async function loadFeature(
@@ -360,8 +376,10 @@ export async function loadFeature(
   // The default branch's documents are known once its facts were reported.
   const showDefault = landed?.row.addedAt != null && (branch === proj.defaultBranch || versions.length === 0)
   let shown: ShownVersion | null = null
-  if (showDefault && landed) shown = await shownDocs(db, projectId, proj.defaultBranch, landed.docs)
-  else if (shownVersion) shown = await shownDocs(db, projectId, shownVersion.branch, shownVersion.docs)
+  if (showDefault && landed)
+    shown = await shownDocs(db, projectId, proj.defaultBranch, landed.docs, landed.extraDocs)
+  else if (shownVersion)
+    shown = await shownDocs(db, projectId, shownVersion.branch, shownVersion.docs, shownVersion.extraDocs)
 
   return {
     entry,

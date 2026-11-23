@@ -164,6 +164,34 @@ describe('GET /api/projects/:slug/features/:dir', () => {
     expect(body.shown.docs.plan).toBeNull()
   })
 
+  it('shows extra documents of the branch version and of the default branch, empty when none', async () => {
+    const { p, cookie } = await setup()
+    await doc(p, 'preview-a', '# Preview A')
+    await doc(p, 'preview-main', '# Preview main')
+    const extraA = [
+      { name: 'preview.md', oid: 'preview-a', size: 11 },
+      { name: 'gone.md', oid: 'no-such-oid', size: 3 },
+    ]
+    await db.update(cloneFeature).set({ extraDocs: extraA }).where(eq(cloneFeature.dir, '001-alpha'))
+    await db.insert(landedFeature).values({
+      projectId: p.id,
+      dir: '001-alpha',
+      firstSeenAt: new Date(),
+      baseline: false,
+      addedAt: new Date(),
+      lastChangeAt: new Date(),
+      specOid: 'spec-a',
+      extraDocs: [{ name: 'preview.md', oid: 'preview-main', size: 14 }],
+    })
+    const base = '/api/projects/acme/features/001-alpha'
+    const branch = await json(request(base, { headers: cookie }))
+    expect(branch.shown.extra).toMatchObject([{ name: 'preview.md', doc: { content: '# Preview A' } }])
+    const main = await json(request(`${base}?branch=main`, { headers: cookie }))
+    expect(main.shown.extra).toMatchObject([{ name: 'preview.md', doc: { content: '# Preview main' } }])
+    const none = await json(request('/api/projects/acme/features/002-beta', { headers: cookie }))
+    expect(none.shown.extra).toEqual([])
+  })
+
   it('selects the requested branch when two carry the same dir', async () => {
     const { p, a, b, cookie } = await setup()
     await doc(p, 'spec-b2', '# Beta v2', { title: 'Beta v2' })

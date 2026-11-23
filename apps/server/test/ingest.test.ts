@@ -369,6 +369,27 @@ describe('finished features (default.features)', () => {
     expect(await proj()).toMatchObject({ finishedTip: TIP2, finishedTipAt: new Date(T0 * 1000) })
   })
 
+  it('asks for extra documents of branch and default features and stores their refs', async () => {
+    const { report, put } = await setup()
+    const PREVIEW = enc('# Preview\n')
+    const extra = [{ name: 'preview.md', ...ref(PREVIEW) }]
+    const m = manifest(CLONE, 100, [{ name: 'f1', features: [{ dir: '001-a' }] }], {
+      tipAt: T0,
+      dirs: ['002-b'],
+      tip: TIP2,
+      features: [{ ...defFeature('002-b'), extra }],
+    })
+    const [branchFeature] = m.branches[0]?.features ?? []
+    Object.assign(branchFeature ?? {}, { extra })
+    const res = await report(m)
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { missing: string[] }).missing).toEqual([oidOf(PREVIEW)])
+    expect((await put(oidOf(PREVIEW), PREVIEW)).status).toBeLessThan(300)
+    expect((await report(m)).status).toBe(200)
+    expect(await db.select().from(cloneFeature)).toMatchObject([{ extraDocs: extra }])
+    expect(await rows()).toMatchObject([{ dir: '002-b', extraDocs: extra }])
+  })
+
   it('keeps firstSeenAt and baseline, updates facts on a newer listing', async () => {
     const { report } = await setup()
     await report(manifest(CLONE, 100, [], { tipAt: T0, dirs: ['001-a'], features: [defFeature('001-a')] }))

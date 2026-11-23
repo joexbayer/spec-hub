@@ -103,6 +103,10 @@ export const cloneFeature = pgTable(
     specSize: integer('spec_size'),
     planSize: integer('plan_size'),
     tasksSize: integer('tasks_size'),
+    extraDocs: jsonb('extra_docs')
+      .$type<{ name: string; oid: string; size: number }[]>()
+      .notNull()
+      .default([]),
   },
   (t) => [
     primaryKey({ columns: [t.cloneId, t.branch, t.dir] }),
@@ -156,6 +160,10 @@ export const landedFeature = pgTable(
     specSize: integer('spec_size'),
     planSize: integer('plan_size'),
     tasksSize: integer('tasks_size'),
+    extraDocs: jsonb('extra_docs')
+      .$type<{ name: string; oid: string; size: number }[]>()
+      .notNull()
+      .default([]),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.dir] })],
 )

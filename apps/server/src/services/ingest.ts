@@ -184,6 +184,7 @@ async function insertBranchesAndFeatures(tx: Tx, manifest: ReportManifest) {
       specSize: f.docs.spec?.size ?? null,
       planSize: f.docs.plan?.size ?? null,
       tasksSize: f.docs.tasks?.size ?? null,
+      extraDocs: f.extra ?? [],
     })),
   )
   if (features.length > 0) await tx.insert(cloneFeatureT).values(features)
@@ -258,6 +259,7 @@ async function storeFinished(tx: Tx, p: ProjectRow, d: DefaultBranchReport): Pro
         specSize: f.docs.spec?.size ?? null,
         planSize: f.docs.plan?.size ?? null,
         tasksSize: f.docs.tasks?.size ?? null,
+        extraDocs: f.extra ?? [],
       })),
     )
     .onConflictDoUpdate({
@@ -274,6 +276,7 @@ async function storeFinished(tx: Tx, p: ProjectRow, d: DefaultBranchReport): Pro
         specSize: excluded('spec_size'),
         planSize: excluded('plan_size'),
         tasksSize: excluded('tasks_size'),
+        extraDocs: excluded('extra_docs'),
       },
     })
 }
