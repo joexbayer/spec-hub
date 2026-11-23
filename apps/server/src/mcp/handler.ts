@@ -1,18 +1,19 @@
 import type { CallToolResult, ServerContext } from '@modelcontextprotocol/server'
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import type { Numbering } from '@spec-hub/core'
-import { featureNumber } from '@spec-hub/core'
+import { featureNumber, matchFinished } from '@spec-hub/core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../app-env.ts'
 import { requireMember, requireToken } from '../auth/bearer.ts'
 import { db } from '../db/client.ts'
-import { loadBoard, loadFeature } from '../services/board-query.ts'
+import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
 import { ask, loadQueueView, poll, unlock, withQueue } from '../services/landing.ts'
 import {
   formatBoard,
   formatDocument,
   formatFeature,
+  formatFinished,
   formatLanding,
   formatLock,
   formatUnlock,
@@ -80,27 +81,64 @@ const mcp = createMcpHandler(({ authInfo }) => {
           .max(255)
           .describe('Feature number ("104") or directory name ("104-ledger-settlement")'),
         document: z
-          .enum(['spec', 'plan', 'tasks'])
+          .string()
+          .min(1)
+          .max(64)
           .optional()
-          .describe('Return the full text of this document'),
+          .describe('spec, plan, tasks, or an extra document such as preview'),
+        branch: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe('Which version: a branch name, or the default branch for the finished version'),
       }),
     },
-    guarded('feature', async ({ id, document }: { id: string; document?: 'spec' | 'plan' | 'tasks' }) => {
-      const board = await loadBoard(db, caller.projectId)
-      const all = [...board.inFlight, ...board.stale].map((e) => e.dir).concat(board.landedDirs)
-      const known = [...new Set(all)]
-      const matches = known.includes(id)
-        ? [id]
-        : known.filter((d) => featureNumber(d, caller.numbering) === id).sort()
-      if (matches.length > 1) {
-        return failure(
-          `ambiguous: ${matches.map((d) => oneLine(d)).join(', ')}; ask again with the directory name`,
+    guarded(
+      'feature',
+      async ({ id, document, branch }: { id: string; document?: string; branch?: string }) => {
+        const board = await loadBoard(db, caller.projectId)
+        const all = [...board.inFlight, ...board.stale].map((e) => e.dir).concat(board.landedDirs)
+        const known = [...new Set(all)]
+        const matches = known.includes(id)
+          ? [id]
+          : known.filter((d) => featureNumber(d, caller.numbering) === id).sort()
+        if (matches.length > 1) {
+          return failure(
+            `ambiguous: ${matches.map((d) => oneLine(d)).join(', ')}; ask again with the directory name`,
+          )
+        }
+        const dir = matches[0]
+        const detail = dir ? await loadFeature(db, caller.projectId, dir, branch) : null
+        if (!detail) return failure(`no feature ${oneLine(id)} in flight or finished`)
+        return text(
+          document ? formatDocument(detail, document.replace(/\.md$/, '')) : formatFeature(detail, board),
         )
+      },
+    ),
+  )
+
+  server.registerTool(
+    'finished',
+    {
+      description:
+        'Finished features: every feature on the default branch, newest landing first; filter by text or owner.',
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({
+        query: z.string().max(255).optional().describe('Title words, folder name or number'),
+        owner: z.string().max(39).optional().describe('GitHub login, without @'),
+      }),
+    },
+    guarded('finished', async ({ query, owner }: { query?: string; owner?: string }) => {
+      const data = await loadFinished(db, caller.projectId)
+      const ownerName = owner?.replace(/^@/, '')
+      const matched = matchFinished(data.finished, query ?? '', ownerName)
+      if (ownerName && !query?.trim() && matched.length === 0 && data.finished.length > 0) {
+        return text(`No finished feature by ${oneLine(ownerName)}.`)
       }
-      const dir = matches[0]
-      const detail = dir ? await loadFeature(db, caller.projectId, dir) : null
-      if (!detail) return failure(`no feature ${oneLine(id)} in flight or recently landed`)
-      return text(document ? formatDocument(detail, document) : formatFeature(detail, board))
+      return text(
+        formatFinished(caller.projectSlug, data.defaultBranch, data.finished.length, matched, query),
+      )
     }),
   )
 

@@ -24,9 +24,13 @@ Response 200:
 { "defaultBranch": "main", "numbering": "sequential", "maxDocumentBytes": 524288, "login": "joexbayer" }
 ```
 
+`finishedTip` (spec 005): see [005's reporter contract](../../005-finished-features/contracts/reporter.md).
+
 ## `POST /reports`
 
 Body limit 1 MiB (FR-010). The body is validated by `ReportManifest` (zod, `packages/core`):
+
+`default.features` (optional, spec 005): the default branch's feature folders with their documents; see [005's reporter contract](../../005-finished-features/contracts/reporter.md).
 
 ```json
 {

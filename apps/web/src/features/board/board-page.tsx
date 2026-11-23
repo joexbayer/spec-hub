@@ -2,7 +2,17 @@ import { type Board, buildDependencyGraph, buildPipeline, buildWorkMap, PHASE_OR
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import type { Edge, Node } from '@xyflow/react'
-import { AlertTriangle, Columns3, GitBranch, LayoutList, Network, Plug, User, Workflow } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Columns3,
+  GitBranch,
+  LayoutList,
+  Network,
+  Plug,
+  User,
+  Workflow,
+} from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
@@ -43,7 +53,7 @@ export function BoardPage({
   onViewChange: (v: BoardView) => void
 }) {
   const me = useQuery(meQuery)
-  const { board: query, lastReportAt } = useBoard(slug)
+  const { board: query, lastReportAt, defaultBranch } = useBoard(slug)
   const board = query.data
   const name = me.data?.projects.find((p) => p.slug === slug)?.name ?? slug
   const blockedBy = useMemo(() => (board ? buildDependencyGraph(board).blockedBy : new Map()), [board])
@@ -69,6 +79,11 @@ export function BoardPage({
                 ))}
               </TabsList>
             </Tabs>
+            <Button variant="outline" className="shadow-xs" asChild>
+              <Link to="/p/$slug/finished" params={{ slug }}>
+                <CheckCircle2 /> Finished
+              </Link>
+            </Button>
             <Button variant="outline" className="shadow-xs" asChild>
               <Link to="/p/$slug/map" params={{ slug }}>
                 <Network /> Dependency map
@@ -156,7 +171,7 @@ export function BoardPage({
                   blockedBy={blockedBy}
                 />
               ) : view === 'pipeline' ? (
-                <PipelineView slug={slug} board={board} />
+                <PipelineView slug={slug} board={board} defaultBranch={defaultBranch} />
               ) : (
                 <WorkMapView slug={slug} board={board} lastReportAt={lastReportAt} />
               )}
@@ -165,6 +180,7 @@ export function BoardPage({
               slug={slug}
               board={board}
               lastReportAt={lastReportAt}
+              defaultBranch={defaultBranch}
               className={view === 'list' ? undefined : 'grid items-start gap-4 space-y-0 lg:grid-cols-3'}
             />
           </div>
@@ -211,7 +227,15 @@ function pipelineElements(board: Board): { nodes: Node[]; edges: Edge[] } {
   return { nodes, edges }
 }
 
-function PipelineView({ slug, board }: { slug: string; board: Board }) {
+function PipelineView({
+  slug,
+  board,
+  defaultBranch,
+}: {
+  slug: string
+  board: Board
+  defaultBranch?: string
+}) {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<string | null>(null)
   const { nodes, edges } = useMemo(() => pipelineElements(board), [board])
@@ -235,8 +259,14 @@ function PipelineView({ slug, board }: { slug: string; board: Board }) {
               viewport={{ x: 28, y: 28, zoom: PIPELINE_ZOOM }}
               onSelect={setSelected}
               onOpen={(dir) => {
-                if (nodes.find((n) => n.id === dir)?.type === 'feature')
-                  navigate({ to: '/p/$slug/f/$dir', params: { slug, dir } })
+                const n = nodes.find((x) => x.id === dir)
+                if (n?.type === 'feature') navigate({ to: '/p/$slug/f/$dir', params: { slug, dir } })
+                else if (n?.type === 'landed')
+                  navigate({
+                    to: '/p/$slug/f/$dir',
+                    params: { slug, dir: (n.data as { landed: { dir: string } }).landed.dir },
+                    search: defaultBranch ? { branch: defaultBranch } : undefined,
+                  })
               }}
             />
           </div>

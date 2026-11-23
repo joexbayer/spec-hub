@@ -1,7 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../src/db/client.ts'
-import { clone, cloneBranch, cloneFeature, document, landedFeature, membership } from '../src/db/schema.ts'
+import {
+  clone,
+  cloneBranch,
+  cloneFeature,
+  document,
+  landedFeature,
+  membership,
+  project,
+} from '../src/db/schema.ts'
 import { loadBoard, loadFeature } from '../src/services/board-query.ts'
 import {
   addMember,
@@ -104,7 +112,8 @@ describe('GET /api/projects/:slug/board', () => {
     const { a, b, cookie, reportA, reportB } = await setup()
     const res = await request('/api/projects/acme/board', { headers: cookie })
     expect(res.status).toBe(200)
-    const { board, lastReportAt } = await json(res)
+    const { board, lastReportAt, defaultBranch } = await json(res)
+    expect(defaultBranch).toBe('main')
     expect(board.inFlight.map((e: { dir: string }) => e.dir).sort()).toEqual(['001-alpha', '002-beta'])
     const alpha = board.inFlight.find((e: { dir: string }) => e.dir === '001-alpha')
     const beta = board.inFlight.find((e: { dir: string }) => e.dir === '002-beta')
@@ -153,6 +162,34 @@ describe('GET /api/projects/:slug/features/:dir', () => {
     expect(body.shown.docs.spec.content).toBe('# Alpha\n**Owner**: alice\n')
     expect(body.shown.docs.spec.facts.ownerHandle).toBe('alice')
     expect(body.shown.docs.plan).toBeNull()
+  })
+
+  it('shows extra documents of the branch version and of the default branch, empty when none', async () => {
+    const { p, cookie } = await setup()
+    await doc(p, 'preview-a', '# Preview A')
+    await doc(p, 'preview-main', '# Preview main')
+    const extraA = [
+      { name: 'preview.md', oid: 'preview-a', size: 11 },
+      { name: 'gone.md', oid: 'no-such-oid', size: 3 },
+    ]
+    await db.update(cloneFeature).set({ extraDocs: extraA }).where(eq(cloneFeature.dir, '001-alpha'))
+    await db.insert(landedFeature).values({
+      projectId: p.id,
+      dir: '001-alpha',
+      firstSeenAt: new Date(),
+      baseline: false,
+      addedAt: new Date(),
+      lastChangeAt: new Date(),
+      specOid: 'spec-a',
+      extraDocs: [{ name: 'preview.md', oid: 'preview-main', size: 14 }],
+    })
+    const base = '/api/projects/acme/features/001-alpha'
+    const branch = await json(request(base, { headers: cookie }))
+    expect(branch.shown.extra).toMatchObject([{ name: 'preview.md', doc: { content: '# Preview A' } }])
+    const main = await json(request(`${base}?branch=main`, { headers: cookie }))
+    expect(main.shown.extra).toMatchObject([{ name: 'preview.md', doc: { content: '# Preview main' } }])
+    const none = await json(request('/api/projects/acme/features/002-beta', { headers: cookie }))
+    expect(none.shown.extra).toEqual([])
   })
 
   it('selects the requested branch when two carry the same dir', async () => {
@@ -230,6 +267,124 @@ describe('GET /api/projects/:slug/features/:dir', () => {
     expect(await json(res)).toEqual({ error: 'no such feature' })
     const bad = await request('/api/projects/acme/features/x%01y', { headers: cookie })
     expect(bad.status).toBe(422)
+  })
+})
+
+describe('finished features', () => {
+  const day = 24 * HOUR
+  const facts = (at: Date, specOid: string | null) => ({
+    addedAt: at,
+    lastChangeAt: at,
+    authorName: 'Dev',
+    authorEmail: 'dev@x.test',
+    specOid,
+  })
+
+  async function seedLanded(p: TestProject) {
+    await doc(p, 'spec-old', '# Old one\n**Owner**: bob\n', { title: 'Old one', ownerHandle: 'bob' })
+    await doc(p, 'spec-new', '# New one', { title: 'New one' })
+    const t = Date.now()
+    await db.insert(landedFeature).values([
+      // baseline: landedAt is addedAt (5 days ago), not firstSeenAt (today)
+      {
+        projectId: p.id,
+        dir: '000-old',
+        firstSeenAt: new Date(t),
+        baseline: true,
+        ...facts(new Date(t - 5 * day), 'spec-old'),
+        specSize: 20,
+      },
+      // non-baseline: landedAt is firstSeenAt (2 days ago)
+      {
+        projectId: p.id,
+        dir: '003-new',
+        firstSeenAt: new Date(t - 2 * day),
+        baseline: false,
+        ...facts(new Date(t - 9 * day), 'spec-new'),
+        authorEmail: 'bob.git@laptop.test',
+      },
+      { projectId: p.id, dir: '004-bare', firstSeenAt: new Date(t - 3 * day), baseline: false },
+      // also carried on a branch: in flight
+      {
+        projectId: p.id,
+        dir: '001-alpha',
+        firstSeenAt: new Date(t - 4 * day),
+        baseline: false,
+        ...facts(new Date(t - 4 * day), 'spec-a'),
+      },
+    ])
+  }
+
+  it('lists newest landed first with owner, reported and in-flight', async () => {
+    const { p, b, cookie } = await setup()
+    await seedLanded(p)
+    const res = await request('/api/projects/acme/finished', { headers: cookie })
+    expect(res.status).toBe(200)
+    const body = await json(res)
+    expect(body.defaultBranch).toBe('main')
+    expect(body.finished.map((f: { dir: string }) => f.dir)).toEqual([
+      '003-new',
+      '004-bare',
+      '001-alpha',
+      '000-old',
+    ])
+    const by = (d: string) => body.finished.find((f: { dir: string }) => f.dir === d)
+    expect(by('000-old').owner).toMatchObject({ kind: 'member', userId: b.id })
+    expect(by('003-new').owner).toMatchObject({ kind: 'member', userId: b.id })
+    expect(by('003-new').title).toBe('New one')
+    expect(by('004-bare').reported).toBe(false)
+    expect(by('003-new').reported).toBe(true)
+    expect(by('001-alpha').inFlight).toBe(true)
+    expect(by('003-new').inFlight).toBe(false)
+    expect(body.members).toBeUndefined()
+    expect(body.finishedTipAt).toBeNull()
+    const tip = new Date(Date.now() - day)
+    await db
+      .update(project)
+      .set({ finishedTip: 'a'.repeat(40), finishedTipAt: tip })
+      .where(eq(project.id, p.id))
+    expect((await json(request('/api/projects/acme/finished', { headers: cookie }))).finishedTipAt).toBe(
+      tip.getTime(),
+    )
+  })
+
+  it('rejects signed-out callers, non-members and unknown projects', async () => {
+    await setup()
+    const outsider = { cookie: await sessionCookie(await createUser('mallory')) }
+    expect((await request('/api/projects/acme/finished')).status).toBe(401)
+    expect((await request('/api/projects/acme/finished', { headers: outsider })).status).toBe(403)
+    expect((await request('/api/projects/nope/finished', { headers: outsider })).status).toBe(404)
+  })
+
+  it("shows main's documents for a finished-only feature", async () => {
+    const { p, cookie } = await setup()
+    await seedLanded(p)
+    const body = await json(request('/api/projects/acme/features/003-new', { headers: cookie }))
+    expect(body.versions).toEqual([])
+    expect(body.shown.branch).toBe('main')
+    expect(body.shown.docs.spec.content).toBe('# New one')
+    expect(body.landed.branch).toBe('main')
+    expect(body.landed.finished).toMatchObject({ dir: '003-new', reported: true })
+  })
+
+  it('shows the branch by default and main on request when both exist', async () => {
+    const { p, cookie } = await setup()
+    await doc(p, 'spec-a-main', '# Alpha on main', { title: 'Alpha on main' })
+    await db.insert(landedFeature).values({
+      projectId: p.id,
+      dir: '001-alpha',
+      firstSeenAt: new Date(),
+      baseline: false,
+      ...facts(new Date(), 'spec-a-main'),
+    })
+    const base = '/api/projects/acme/features/001-alpha'
+    const dflt = await json(request(base, { headers: cookie }))
+    expect(dflt.shown.branch).toBe('001-alpha')
+    expect(dflt.shown.docs.spec.content).toBe('# Alpha\n**Owner**: alice\n')
+    expect(dflt.versions).toHaveLength(1)
+    const main = await json(request(`${base}?branch=main`, { headers: cookie }))
+    expect(main.shown.branch).toBe('main')
+    expect(main.shown.docs.spec.content).toBe('# Alpha on main')
   })
 })
 

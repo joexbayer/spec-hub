@@ -1,6 +1,9 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { FEATURE_TABS, type FeatureTab } from '@/features/feature-detail/document-tabs'
+import type { FeatureTab } from '@/features/feature-detail/document-tabs'
 import { FeaturePage } from '@/features/feature-detail/feature-page'
+
+// a fixed tab or an extra document's name without .md; the page falls back to spec for one the version lacks
+const TAB_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 interface FeatureSearch {
   tab?: FeatureTab
@@ -9,7 +12,7 @@ interface FeatureSearch {
 
 export const Route = createFileRoute('/_app/p/$slug/f/$dir')({
   validateSearch: (search: Record<string, unknown>): FeatureSearch => ({
-    tab: FEATURE_TABS.find((t) => t === search.tab),
+    tab: typeof search.tab === 'string' && TAB_NAME.test(search.tab) ? search.tab : undefined,
     branch: typeof search.branch === 'string' && search.branch ? search.branch : undefined,
   }),
   component: FeatureRoute,

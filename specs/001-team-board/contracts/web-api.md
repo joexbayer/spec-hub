@@ -3,6 +3,8 @@
 These are Hono routes under `/api`. The web app uses them through the typed `hc<AppType>` client;
 routes are chained so their types are inferred (R1, R12).
 
+Spec 005 adds `GET /api/projects/:slug/finished` and the default-branch version on `GET /api/projects/:slug/features/:dir`: see [005's web contract](../../005-finished-features/contracts/web.md).
+
 - **Auth**: Better Auth session cookie.
 - **Mutations**: also require a same-origin `Origin` header (Hono `csrf()`).
 - **Validation**: every body and parameter is validated with zod.

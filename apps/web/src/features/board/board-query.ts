@@ -13,10 +13,11 @@ export function useBoard(slug: string) {
   const board = useQuery({
     queryKey: ['board', slug],
     queryFn: async () => {
-      const res = await json<{ board: Board; lastReportAt: LastReportAt }>(
+      const res = await json<{ board: Board; lastReportAt: LastReportAt; defaultBranch: string }>(
         await fetch(`/api/projects/${slug}/board`, { credentials: 'same-origin' }),
       )
       queryClient.setQueryData(['board', slug, 'reports'], res.lastReportAt)
+      queryClient.setQueryData(['board', slug, 'defaultBranch'], res.defaultBranch)
       return res.board
     },
     // not a member, or no such project: polling cannot change that
@@ -28,5 +29,9 @@ export function useBoard(slug: string) {
     queryKey: ['board', slug, 'reports'],
     queryFn: skipToken,
   })
-  return { board, lastReportAt: reports.data ?? {} }
+  const branch = useQuery<string>({
+    queryKey: ['board', slug, 'defaultBranch'],
+    queryFn: skipToken,
+  })
+  return { board, lastReportAt: reports.data ?? {}, defaultBranch: branch.data }
 }

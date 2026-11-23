@@ -32,6 +32,18 @@ If you keep `backup/*` branches (for example before a rebase), each one shows up
 sh .specify/extensions/spec-hub/scripts/spec-hub private add backup/
 ```
 
+Reports also include the default branch's specs when it has moved since the hub last saw it, so the hub can show finished features. One connected member with this version of the extension is enough to fill that list for the whole project.
+
+## Extra documents
+
+To show more than spec, plan and tasks, list file names in `.specify/extensions/spec-hub/spec-hub-config.yml`, separated by spaces (up to 5, each a `*.md` file other than spec, plan or tasks):
+
+```yaml
+documents: preview.md
+```
+
+Each listed file found in a feature folder is reported and shown as a tab on the feature page next to spec, plan and tasks. Agents can ask for it by name. Commit the config so the whole team shares it. Without the key nothing changes.
+
 ## Agents
 
 Agents read the same board over MCP. The agent connects to `https://<hub>/mcp/<project>` with the same

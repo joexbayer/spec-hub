@@ -1,6 +1,6 @@
 import type { ReportManifest } from '@spec-hub/core'
-import { MAX_DOCUMENT_BYTES, parseDocument, uploadableOids } from '@spec-hub/core'
-import { and, eq, inArray } from 'drizzle-orm'
+import { MAX_DOCUMENT_BYTES, manifestDocs, parseDocument, uploadableOids } from '@spec-hub/core'
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import type { Project } from '../app-env.ts'
 import type { Db, Tx } from '../db/client.ts'
 import {
@@ -50,7 +50,10 @@ export async function ingestReport(
     // Cascades to clone_feature via the composite FK.
     await tx.delete(cloneBranchT).where(eq(cloneBranchT.cloneId, manifest.cloneId))
     await insertBranchesAndFeatures(tx, manifest)
-    if (manifest.default) await advanceDefaultBranch(tx, project.id, manifest.default)
+    if (manifest.default) {
+      const before = await advanceDefaultBranch(tx, project.id, manifest.default)
+      await storeFinished(tx, before, manifest.default)
+    }
     return { kind: 'stored' }
   })
 }
@@ -109,13 +112,7 @@ async function missingDocuments(tx: Tx, projectId: string, oids: string[]): Prom
 
 async function storeTooLargeMarkers(tx: Tx, projectId: string, manifest: ReportManifest, maxBytes: number) {
   const sizes = new Map<string, number>()
-  for (const b of manifest.branches) {
-    for (const f of b.features) {
-      for (const d of [f.docs.spec, f.docs.plan, f.docs.tasks]) {
-        if (d && d.size > maxBytes) sizes.set(d.oid, d.size)
-      }
-    }
-  }
+  for (const d of manifestDocs(manifest)) if (d.size > maxBytes) sizes.set(d.oid, d.size)
   if (sizes.size === 0) return
   // one order for every transaction, so two reports sharing oids cannot deadlock on the inserts
   const sorted = [...sizes].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -187,19 +184,28 @@ async function insertBranchesAndFeatures(tx: Tx, manifest: ReportManifest) {
       specSize: f.docs.spec?.size ?? null,
       planSize: f.docs.plan?.size ?? null,
       tasksSize: f.docs.tasks?.size ?? null,
+      extraDocs: f.extra ?? [],
     })),
   )
   if (features.length > 0) await tx.insert(cloneFeatureT).values(features)
 }
 
-async function advanceDefaultBranch(tx: Tx, projectId: string, d: DefaultBranchReport) {
+type ProjectRow = typeof projectT.$inferSelect
+
+// the first listing ever, or one from before the project existed, is history (FR-017)
+function isBaseline(p: { defaultTipAt: Date | null; createdAt: Date }, tipAt: Date): boolean {
+  return p.defaultTipAt === null || tipAt <= p.createdAt
+}
+
+// Returns the project row as read (locked) BEFORE the update: storeFinished needs the pre-update
+// defaultTipAt to decide the baseline the same way.
+async function advanceDefaultBranch(tx: Tx, projectId: string, d: DefaultBranchReport): Promise<ProjectRow> {
   const [p] = await tx.select().from(projectT).where(eq(projectT.id, projectId)).for('update')
   if (!p) throw new Error(`project ${projectId} not found`)
-  if (d.branch !== p.defaultBranch) return // listed against a default branch the project no longer has
+  if (d.branch !== p.defaultBranch) return p // listed against a default branch the project no longer has
   const tipAt = new Date(d.tipAt * 1000)
-  if (p.defaultTipAt && p.defaultTipAt >= tipAt) return // an older (or the same) origin/main: ignore
-  // the first listing ever, or one from before the project existed, is history (FR-017)
-  const baseline = p.defaultTipAt === null || tipAt <= p.createdAt
+  if (p.defaultTipAt && p.defaultTipAt >= tipAt) return p // an older (or the same) origin/main: ignore
+  const baseline = isBaseline(p, tipAt)
   await tx.update(projectT).set({ defaultTip: d.tip, defaultTipAt: tipAt }).where(eq(projectT.id, projectId))
   if (d.dirs.length > 0) {
     const firstSeenAt = new Date()
@@ -208,4 +214,69 @@ async function advanceDefaultBranch(tx: Tx, projectId: string, d: DefaultBranchR
       .values(d.dirs.map((dir) => ({ projectId, dir, firstSeenAt, baseline })))
       .onConflictDoNothing()
   }
+  return p
+}
+
+const excluded = (column: string) => sql.raw(`excluded.${column}`)
+
+// `p` is the pre-update row, locked FOR UPDATE by advanceDefaultBranch in this transaction.
+async function storeFinished(tx: Tx, p: ProjectRow, d: DefaultBranchReport): Promise<void> {
+  if (!d.features) return
+  if (d.branch !== p.defaultBranch) return
+  const tipAt = new Date(d.tipAt * 1000)
+  if (p.finishedTipAt && p.finishedTipAt >= tipAt) return // an older or the same listing (FR-005)
+  await tx.update(projectT).set({ finishedTip: d.tip, finishedTipAt: tipAt }).where(eq(projectT.id, p.id))
+  const listed = d.features.map((f) => f.dir)
+  // removed or renamed on the default branch (FR-011); not when a newer dirs step already ran (it would delete a just-landed folder)
+  if (!p.defaultTipAt || tipAt >= p.defaultTipAt) {
+    await tx
+      .delete(landedFeatureT)
+      .where(
+        and(
+          eq(landedFeatureT.projectId, p.id),
+          listed.length > 0 ? notInArray(landedFeatureT.dir, listed) : undefined,
+        ),
+      )
+  }
+  if (d.features.length === 0) return
+  const firstSeenAt = new Date()
+  const baseline = isBaseline(p, tipAt)
+  await tx
+    .insert(landedFeatureT)
+    .values(
+      d.features.map((f) => ({
+        projectId: p.id,
+        dir: f.dir,
+        firstSeenAt,
+        baseline,
+        addedAt: new Date(f.addedAt * 1000),
+        lastChangeAt: new Date(f.lastChangeAt * 1000),
+        authorName: f.author?.name ?? null,
+        authorEmail: f.author?.email ?? null,
+        specOid: f.docs.spec?.oid ?? null,
+        planOid: f.docs.plan?.oid ?? null,
+        tasksOid: f.docs.tasks?.oid ?? null,
+        specSize: f.docs.spec?.size ?? null,
+        planSize: f.docs.plan?.size ?? null,
+        tasksSize: f.docs.tasks?.size ?? null,
+        extraDocs: f.extra ?? [],
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [landedFeatureT.projectId, landedFeatureT.dir],
+      // only the facts; first_seen_at and baseline keep their first value
+      set: {
+        addedAt: excluded('added_at'),
+        lastChangeAt: excluded('last_change_at'),
+        authorName: excluded('author_name'),
+        authorEmail: excluded('author_email'),
+        specOid: excluded('spec_oid'),
+        planOid: excluded('plan_oid'),
+        tasksOid: excluded('tasks_oid'),
+        specSize: excluded('spec_size'),
+        planSize: excluded('plan_size'),
+        tasksSize: excluded('tasks_size'),
+        extraDocs: excluded('extra_docs'),
+      },
+    })
 }

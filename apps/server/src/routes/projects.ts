@@ -58,7 +58,7 @@ export const projectRoutes = new Hono<AppEnv>()
     // a new default branch starts its landed history over: the old tip belongs to another branch
     const retarget =
       body.defaultBranch !== undefined && body.defaultBranch !== p.defaultBranch
-        ? { defaultTip: null, defaultTipAt: null }
+        ? { defaultTip: null, defaultTipAt: null, finishedTip: null, finishedTipAt: null }
         : {}
     const row = await db.transaction(async (tx) => {
       const [updated] = await tx

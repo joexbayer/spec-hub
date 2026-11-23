@@ -22,18 +22,22 @@ const UnixTimeMs = z
   .nonnegative()
   .refine((t) => t <= Date.now() + DAY_SECONDS * 1000, 'must not be more than a day in the future')
 
-export const DocRef = z
-  .object({
-    oid: Oid,
-    size: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(2 ** 31 - 1),
-  })
-  .strict()
-  .nullable()
+const DocSize = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(2 ** 31 - 1)
+
+export const DocRef = z.object({ oid: Oid, size: DocSize }).strict().nullable()
 export type DocRef = z.infer<typeof DocRef>
+
+export const EXTRA_DOC_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md$/
+const ExtraName = z
+  .string()
+  .regex(EXTRA_DOC_NAME)
+  .refine((n) => n !== 'spec.md' && n !== 'plan.md' && n !== 'tasks.md', 'reserved document name')
+const ExtraDoc = z.object({ name: ExtraName, oid: Oid, size: DocSize }).strict()
+export type ExtraDoc = z.infer<typeof ExtraDoc>
 
 const Feature = z
   .object({
@@ -41,6 +45,18 @@ const Feature = z
     lastChangeAt: UnixTime,
     author: z.object({ name: Name, email: Email }).strict().nullable(),
     docs: z.object({ spec: DocRef, plan: DocRef, tasks: DocRef }).strict(),
+    extra: z.array(ExtraDoc).max(5).optional(),
+  })
+  .strict()
+
+const DefaultFeature = z
+  .object({
+    dir: DirName,
+    addedAt: UnixTime,
+    lastChangeAt: UnixTime,
+    author: z.object({ name: Name, email: Email }).strict().nullable(),
+    docs: z.object({ spec: DocRef, plan: DocRef, tasks: DocRef }).strict(),
+    extra: z.array(ExtraDoc).max(5).optional(),
   })
   .strict()
 
@@ -60,6 +76,7 @@ const DefaultBranch = z
     tip: Oid,
     tipAt: UnixTime,
     dirs: z.array(DirName).max(5000),
+    features: z.array(DefaultFeature).max(2000).optional(),
   })
   .strict()
   .nullable()
@@ -81,7 +98,37 @@ export const ReportManifest = z
         ctx.addIssue({ code: 'custom', message: `oid must be ${len} hex chars for ${m.objectFormat}`, path })
       }
     }
+    const checkExtra = (f: { extra?: ExtraDoc[] }, path: (string | number)[]) => {
+      const seen = new Set<string>()
+      f.extra?.forEach((e, ei) => {
+        if (seen.has(e.name)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'duplicate extra document name',
+            path: [...path, 'extra', ei, 'name'],
+          })
+        }
+        seen.add(e.name)
+        check(e.oid, [...path, 'extra', ei, 'oid'])
+      })
+    }
     if (m.default) check(m.default.tip, ['default', 'tip'])
+    const defaultDirs = new Set<string>()
+    m.default?.features?.forEach((f, fi) => {
+      if (defaultDirs.has(f.dir)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'duplicate feature dir',
+          path: ['default', 'features', fi, 'dir'],
+        })
+      }
+      defaultDirs.add(f.dir)
+      for (const k of ['spec', 'plan', 'tasks'] as const) {
+        const d = f.docs[k]
+        if (d) check(d.oid, ['default', 'features', fi, 'docs', k, 'oid'])
+      }
+      checkExtra(f, ['default', 'features', fi])
+    })
     const names = new Set<string>()
     m.branches.forEach((b, bi) => {
       check(b.tip, ['branches', bi, 'tip'])
@@ -104,6 +151,7 @@ export const ReportManifest = z
           const d = f.docs[k]
           if (d) check(d.oid, ['branches', bi, 'features', fi, 'docs', k, 'oid'])
         }
+        checkExtra(f, ['branches', bi, 'features', fi])
       })
     })
   })
@@ -111,14 +159,21 @@ export type ReportManifest = z.infer<typeof ReportManifest>
 export type ManifestBranch = ReportManifest['branches'][number]
 export type ManifestFeature = ManifestBranch['features'][number]
 
+/** Every non-null document reference: branch features first, then default-branch features. */
+export function* manifestDocs(m: ReportManifest): Generator<NonNullable<DocRef>> {
+  const features = [...m.branches.flatMap((b) => b.features), ...(m.default?.features ?? [])]
+  for (const f of features) {
+    for (const d of [f.docs.spec, f.docs.plan, f.docs.tasks]) {
+      if (d) yield d
+    }
+    for (const e of f.extra ?? []) yield { oid: e.oid, size: e.size }
+  }
+}
+
 export function uploadableOids(m: ReportManifest, maxBytes = MAX_DOCUMENT_BYTES): string[] {
   const seen = new Set<string>()
-  for (const b of m.branches) {
-    for (const f of b.features) {
-      for (const d of [f.docs.spec, f.docs.plan, f.docs.tasks]) {
-        if (d && d.size <= maxBytes) seen.add(d.oid)
-      }
-    }
+  for (const d of manifestDocs(m)) {
+    if (d.size <= maxBytes) seen.add(d.oid)
   }
   return [...seen]
 }

@@ -40,19 +40,26 @@ export function SideRail({
   slug,
   board,
   lastReportAt,
+  defaultBranch,
   className,
 }: {
   slug: string
   board: Board
   lastReportAt: LastReportAt
+  defaultBranch?: string
   className?: string
 }) {
   const { blockedBy } = buildDependencyGraph(board)
   const collisions = board.inFlight.filter((e) => e.collisions.length > 0)
   const blocked = board.inFlight.filter((e) => blockedBy.has(e.dir))
   const attention = collisions.length + blocked.length + (board.stale.length > 0 ? 1 : 0)
-  const feature = (dir: string, title: string) => (
-    <Link to="/p/$slug/f/$dir" params={{ slug, dir }} className="hover:underline">
+  const feature = (dir: string, title: string, branch?: string) => (
+    <Link
+      to="/p/$slug/f/$dir"
+      params={{ slug, dir }}
+      search={branch ? { branch } : undefined}
+      className="hover:underline"
+    >
       {title}
     </Link>
   )
@@ -115,7 +122,7 @@ export function SideRail({
                   key={l.dir}
                   icon={<GitMerge />}
                   tone="bg-phase-landed/10 text-phase-landed"
-                  title={titleFromDir(l.dir)}
+                  title={feature(l.dir, titleFromDir(l.dir), defaultBranch)}
                   aside={
                     <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
                       {formatDistanceToNow(l.firstSeenAt, { addSuffix: true })}

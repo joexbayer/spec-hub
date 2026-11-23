@@ -5,7 +5,9 @@ import { Document } from '@/components/document'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export const FEATURE_TABS = ['spec', 'plan', 'tasks', 'versions', 'dependencies'] as const
-export type FeatureTab = (typeof FEATURE_TABS)[number]
+type FixedTab = (typeof FEATURE_TABS)[number]
+/** A fixed tab, or the name of an extra document without `.md`. */
+export type FeatureTab = string
 
 const DOC_TABS = ['spec', 'plan', 'tasks'] as const
 
@@ -29,7 +31,7 @@ function Note({ children }: { children: ReactNode }) {
   )
 }
 
-const ICONS: Record<FeatureTab, ReactNode> = {
+const ICONS: Record<FixedTab, ReactNode> = {
   spec: <FileText />,
   plan: <MapIcon />,
   tasks: <ListChecks />,
@@ -52,22 +54,43 @@ export function DocumentTabs({
   versions?: ReactNode
   dependencies?: ReactNode
 }) {
+  const extra = shown?.extra ?? []
+  const extraTabs = extra.map((e) => ({ ...e, tab: e.name.replace(/\.md$/, '') }))
+  const fixed = (t: FixedTab) => (
+    <TabsTrigger key={t} value={t} className="flex-none px-3 capitalize">
+      {ICONS[t]}
+      {t}
+    </TabsTrigger>
+  )
+  // a ?tab= naming an extra document this version lacks falls back to spec
+  const available = [...FEATURE_TABS, ...extraTabs.map((e) => e.tab)]
+  const current = available.includes(tab) ? tab : 'spec'
   return (
-    <Tabs value={tab} onValueChange={(v) => onTabChange(v as FeatureTab)} className="gap-4">
+    <Tabs value={current} onValueChange={onTabChange} className="gap-4">
       <div className="overflow-x-auto border-b">
         <TabsList variant="line" className="h-10">
-          {FEATURE_TABS.map((t) => (
-            <TabsTrigger key={t} value={t} className="flex-none px-3 capitalize">
-              {ICONS[t]}
-              {t}
+          {DOC_TABS.map(fixed)}
+          {extraTabs.map((e) => (
+            <TabsTrigger key={e.tab} value={e.tab} className="flex-none px-3">
+              <FileText />
+              {e.tab}
             </TabsTrigger>
           ))}
+          {fixed('versions')}
+          {fixed('dependencies')}
         </TabsList>
       </div>
       {DOC_TABS.map((name) => (
         <TabsContent key={name} value={name}>
           <div className="rounded-xl border bg-card px-5 py-4 shadow-xs md:px-8 md:py-6">
             <DocBody name={name} doc={shown?.docs[name] ?? null} slug={slug} />
+          </div>
+        </TabsContent>
+      ))}
+      {extraTabs.map((e) => (
+        <TabsContent key={e.tab} value={e.tab}>
+          <div className="rounded-xl border bg-card px-5 py-4 shadow-xs md:px-8 md:py-6">
+            <DocBody name={e.tab} doc={e.doc} slug={slug} />
           </div>
         </TabsContent>
       ))}

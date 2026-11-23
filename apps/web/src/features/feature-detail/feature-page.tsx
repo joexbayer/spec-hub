@@ -164,7 +164,7 @@ export function FeaturePage({
                   </Button>
                 }
               >
-                No feature {dir} in flight or recently landed.
+                No feature {dir} in flight or finished.
               </EmptyState>
             ) : (
               <EmptyState icon={AlertTriangle} title="Could not load this feature">
@@ -178,17 +178,32 @@ export function FeaturePage({
   }
 
   const { entry, landed, versions, shown } = data
-  const number = entry?.number ?? dir.split('-')[0]
-  const title = entry?.title ?? titleFromDir(dir)
+  const number = entry?.number ?? landed?.finished.number ?? dir.split('-')[0]
+  const title = entry?.title ?? landed?.finished.title ?? titleFromDir(dir)
   const isLanded = landed !== null && entry === null
   const shownBranch = shown?.branch
-  const tasks = versions.find((v) => v.branch === shownBranch)?.tasks ?? null
-  const docsPresent = shown ? Object.values(shown.docs).filter(Boolean).length : 0
-  const lastChangeAt = entry?.lastChangeAt ?? Math.max(0, ...versions.map((v) => v.lastChangeAt))
-  const openClarifications = entry?.openClarifications ?? 0
+  const fin = landed?.finished ?? null
+  const showingLanded = landed !== null && shownBranch === landed.branch
   const current = versions.find((v) => v.branch === shownBranch)
+  const tasks = showingLanded
+    ? fin?.tasks
+      ? { tasksDone: fin.tasks.done, tasksTotal: fin.tasks.total }
+      : null
+    : (current?.tasks ?? null)
+  const docsPresent = shown ? Object.values(shown.docs).filter(Boolean).length : 0
+  const lastChangeAt = showingLanded
+    ? (fin?.lastChangeAt ?? 0)
+    : (entry?.lastChangeAt ?? Math.max(0, ...versions.map((v) => v.lastChangeAt)))
+  const openClarifications = entry?.openClarifications ?? 0
+  const choices = [
+    ...versions.map((v) => ({ branch: v.branch, label: v.branch })),
+    ...(landed?.finished.reported && !versions.some((v) => v.branch === landed.branch)
+      ? [{ branch: landed.branch, label: `${landed.branch} (landed)` }]
+      : []),
+  ]
+  const documentsNotReported = landed !== null && !landed.finished.reported && versions.length === 0
   const carriers = [...new Set(versions.map((v) => v.carrierUserId))]
-  const owner = entry?.owner ?? UNKNOWN_OWNER
+  const owner = entry?.owner ?? fin?.owner ?? UNKNOWN_OWNER
   const ownerId = owner.kind === 'member' ? owner.userId : null
   const carrying = (id: string) => {
     const n = versions.filter((v) => v.carrierUserId === id).length
@@ -227,13 +242,18 @@ export function FeaturePage({
                 <CheckCircle2 aria-hidden className="size-3 text-phase-landed" /> Landed
               </span>
             ) : null}
-            {entry ? (
-              <span className="inline-flex h-6 items-center gap-1.5 rounded-md border bg-card px-1.5 text-xs">
-                <OwnerAvatar owner={entry.owner} className="size-4" />
-                {ownerName(entry.owner)}
+            {isLanded && fin ? (
+              <span className="text-xs text-muted-foreground">
+                {fin.landedAt === null ? 'landing time unknown' : `landed ${relative(fin.landedAt)}`}
               </span>
             ) : null}
-            {versions.length > 1 ? (
+            {entry || fin ? (
+              <span className="inline-flex h-6 items-center gap-1.5 rounded-md border bg-card px-1.5 text-xs">
+                <OwnerAvatar owner={owner} className="size-4" />
+                {ownerName(owner)}
+              </span>
+            ) : null}
+            {choices.length > 1 ? (
               <Select value={shownBranch ?? ''} onValueChange={onBranchChange}>
                 <SelectTrigger
                   size="sm"
@@ -244,21 +264,21 @@ export function FeaturePage({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {versions.map((v) => (
-                    <SelectItem key={v.branch} value={v.branch} className="font-mono text-xs">
-                      {v.branch}
+                  {choices.map((c) => (
+                    <SelectItem key={c.branch} value={c.branch} className="font-mono text-xs">
+                      {c.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             ) : (
-              versions.map((v) => (
+              choices.map((c) => (
                 <span
-                  key={v.branch}
+                  key={c.branch}
                   className="inline-flex h-6 items-center gap-1.5 rounded-md border bg-card px-1.5 font-mono text-xs"
                 >
                   <GitBranch aria-hidden className="size-3" />
-                  {v.branch}
+                  {c.branch}
                 </span>
               ))
             )}
@@ -346,14 +366,21 @@ export function FeaturePage({
           </PanelBody>
         </Panel>
 
-        <DocumentTabs
-          slug={slug}
-          shown={shown}
-          tab={tab}
-          onTabChange={onTabChange}
-          versions={<VersionsPanel slug={slug} detail={data} />}
-          dependencies={<DependenciesPanel slug={slug} dir={dir} />}
-        />
+        {documentsNotReported ? (
+          <p className="text-sm text-muted-foreground">
+            Documents not reported yet; they appear after a connected clone that has fetched {landed.branch}{' '}
+            reports.
+          </p>
+        ) : (
+          <DocumentTabs
+            slug={slug}
+            shown={shown}
+            tab={tab}
+            onTabChange={onTabChange}
+            versions={<VersionsPanel slug={slug} detail={data} />}
+            dependencies={<DependenciesPanel slug={slug} dir={dir} />}
+          />
+        )}
       </div>
 
       <aside className="divide-y border-t xl:border-t-0 xl:border-l">
@@ -372,19 +399,28 @@ export function FeaturePage({
         </RailSection>
         <RailSection icon={<Clock />} title="Time">
           <div className="space-y-2">
-            {landed ? <Fact label="First seen">{relative(landed.firstSeenAt)}</Fact> : null}
+            {landed ? (
+              <Fact label="Landed">
+                {landed.finished.landedAt === null ? 'unknown' : relative(landed.finished.landedAt)}
+              </Fact>
+            ) : null}
             <Fact label="Last change">{lastChangeAt ? relative(lastChangeAt) : '—'}</Fact>
           </div>
         </RailSection>
         <RailSection icon={<FileText />} title="Documents" count={docsPresent}>
           {shown ? (
             <ul className="space-y-2">
-              {(['spec', 'plan', 'tasks'] as const).map((name) => {
-                const doc = shown.docs[name]
+              {[
+                ...(['spec', 'plan', 'tasks'] as const).map((name) => ({
+                  file: `${name}.md`,
+                  doc: shown.docs[name],
+                })),
+                ...shown.extra.map((e) => ({ file: e.name, doc: e.doc })),
+              ].map(({ file, doc }) => {
                 return (
-                  <li key={name} className="flex items-center gap-2 text-sm">
+                  <li key={file} className="flex items-center gap-2 text-sm">
                     <FileText aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className={doc ? 'font-medium' : 'text-muted-foreground'}>{name}.md</span>
+                    <span className={doc ? 'font-medium' : 'text-muted-foreground'}>{file}</span>
                     <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                       {doc ? (
                         <>

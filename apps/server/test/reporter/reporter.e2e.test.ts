@@ -1,14 +1,14 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
-import { apikey, cloneBranch, cloneFeature, document } from '../../src/db/schema.ts'
+import { apikey, cloneBranch, cloneFeature, document, landedFeature, project } from '../../src/db/schema.ts'
 import { addMember, createProject, createToken, createUser, truncateAll } from '../helpers.ts'
-import { type Hub, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
+import { CONFIG, type Hub, Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
 
 let hub: Hub
 let seq = 0
@@ -394,5 +394,350 @@ describe('reporter end to end (real hub, real git)', () => {
       expect(r.stderr).not.toContain(token.key)
       expect(r.stderr).toContain('refusing')
     }
+  })
+})
+
+describe('default branch listing (finished features)', () => {
+  const ADDED = Math.floor(Date.now() / 1000) - 20 * 86_400 // the 003-merged branch commit
+  const MERGED = ADDED + 10 * 86_400 // its merge into main
+
+  /**
+   * main gets 001-full (spec, plan, tasks), 002-spec-only and 003-merged (through a --no-ff merge,
+   * back-dated), pushed. Hooks are off while building, so no background report races the push.
+   */
+  function buildMain(repo: Repo) {
+    const git = (args: string[], env?: NodeJS.ProcessEnv) => {
+      const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args], env ? { env } : {})
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+    }
+    const at = (t: number) => ({ GIT_AUTHOR_DATE: `${t} +0000`, GIT_COMMITTER_DATE: `${t} +0000` })
+    repo.write('specs/001-full/spec.md', `${SPEC}\nfull\n`)
+    repo.write('specs/001-full/plan.md', '# Plan\n\nfull\n')
+    repo.write('specs/001-full/tasks.md', '# Tasks\n\n- [ ] T001 full\n')
+    repo.write('specs/002-spec-only/spec.md', `${SPEC}\nspec only\n`)
+    git(['add', 'specs'])
+    git(['commit', '-q', '-m', 'two features'])
+    git(['checkout', '-q', '-b', '003-merged'])
+    repo.write('specs/003-merged/spec.md', `${SPEC}\nmerged\n`)
+    git(['add', 'specs'])
+    git(['commit', '-q', '-m', 'merged feature'], at(ADDED))
+    git(['checkout', '-q', 'main'])
+    git(['merge', '-q', '--no-ff', '-m', 'merge 003-merged', '003-merged'], at(MERGED))
+    git(['branch', '-q', '-D', '003-merged'])
+    git(['push', '-q', 'origin', 'main'])
+  }
+
+  type DefaultFeature = {
+    dir: string
+    addedAt: number
+    lastChangeAt: number
+    author: { name: string; email: string } | null
+    docs: Record<'spec' | 'plan' | 'tasks', { oid: string; size: number } | null>
+    extra?: { name: string; oid: string; size: number }[]
+  }
+  const printDefault = async (repo: Repo) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    return JSON.parse(r.stdout).default as { tip: string; dirs: string[]; features?: DefaultFeature[] }
+  }
+  const blob = (repo: Repo, path: string) => repo.git('rev-parse', `origin/main:${path}`).trim()
+
+  it('lists every feature on the default branch with its docs, owner and merge time', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+
+    const features = (await printDefault(repo)).features!
+    expect(features.map((f) => f.dir)).toEqual(['001-full', '002-spec-only', '003-merged'])
+    const [full, specOnly, merged] = features as [DefaultFeature, DefaultFeature, DefaultFeature]
+    expect(full.docs).toEqual({
+      spec: { oid: blob(repo, 'specs/001-full/spec.md'), size: `${SPEC}\nfull\n`.length },
+      plan: { oid: blob(repo, 'specs/001-full/plan.md'), size: '# Plan\n\nfull\n'.length },
+      tasks: { oid: blob(repo, 'specs/001-full/tasks.md'), size: '# Tasks\n\n- [ ] T001 full\n'.length },
+    })
+    expect(specOnly.docs).toEqual({
+      spec: { oid: blob(repo, 'specs/002-spec-only/spec.md'), size: expect.any(Number) },
+      plan: null,
+      tasks: null,
+    })
+    expect(merged.docs.spec?.oid).toBe(blob(repo, 'specs/003-merged/spec.md'))
+    for (const f of features) expect(f.author).toEqual({ name: 'Test Dev', email: 'dev@example.test' })
+
+    // a merge commit is credited with what it brought in: added when it landed on main
+    expect(repo.git('log', '-1', '--format=%ct', 'origin/main').trim()).toBe(String(MERGED))
+    expect(merged).toMatchObject({ addedAt: MERGED, lastChangeAt: MERGED })
+    expect(full.addedAt).toBe(full.lastChangeAt)
+    expect(full.addedAt).toBeGreaterThan(MERGED - 86_400 * 10)
+  })
+
+  it('uploads the default branch documents with a real report, and the commit stays silent', async () => {
+    const { repo, cloneId, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    const oids = [
+      'specs/001-full/spec.md',
+      'specs/001-full/plan.md',
+      'specs/001-full/tasks.md',
+      'specs/002-spec-only/spec.md',
+      'specs/003-merged/spec.md',
+    ].map((p) => blob(repo, p))
+
+    repo.git('checkout', '-q', '-b', '004-new')
+    repo.write('specs/004-new/spec.md', SPEC)
+    const out = repo.commit(['specs/004-new/spec.md'], 'new feature')
+    expect(out.stderr).toBe('')
+    expect(out.stdout).not.toContain('spec-hub')
+
+    await waitFor(() => featureRow(cloneId, '004-new', '004-new'), 'feature 004-new')
+    await waitFor(async () => {
+      const rows = await db.select({ oid: document.oid }).from(document).where(inArray(document.oid, oids))
+      return new Set(rows.map((r) => r.oid)).size === oids.length ? true : undefined
+    }, 'default branch documents')
+  })
+
+  it('leaves the listing out while the hub already has the default branch tip', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await printDefault(repo)).features).toHaveLength(3)
+
+    const tip = repo.git('rev-parse', 'origin/main').trim()
+    await db.update(project).set({ finishedTip: tip, finishedTipAt: new Date() }).where(eq(project.id, p.id))
+    const unchanged = await printDefault(repo)
+    expect(unchanged.tip).toBe(tip)
+    expect(unchanged.dirs).toEqual(['001-full', '002-spec-only', '003-merged'])
+    expect(unchanged).not.toHaveProperty('features')
+  })
+
+  // ---- main moves, lagging clones, older reporters (quickstart 3, 4, 5)
+
+  const landedOf = (projectId: string) =>
+    db.select().from(landedFeature).where(eq(landedFeature.projectId, projectId)).orderBy(landedFeature.dir)
+  const projectRow = async (id: string) => (await db.select().from(project).where(eq(project.id, id)))[0]!
+  /**
+   * connect already reported the initial commit (tip time: now), and buildMain's tip is back-dated,
+   * so the hub would ignore its listing as older: forget the tips first.
+   */
+  const forgetTips = (projectId: string) =>
+    db
+      .update(project)
+      .set({ defaultTip: null, defaultTipAt: null, finishedTip: null, finishedTipAt: null })
+      .where(eq(project.id, projectId))
+  /** Rows with every fact stored, so a later change to them is visible. */
+  const storedListing = (projectId: string) =>
+    waitFor(async () => {
+      const rows = await landedOf(projectId)
+      return rows.length === 3 && rows.every((r) => r.specOid) ? rows : undefined
+    }, 'stored listing')
+  /** git with the clone's hooks off, so no background report races what the test does next. */
+  const quiet = (repo: Repo, args: string[], env?: NodeJS.ProcessEnv) => {
+    const r = repo.sb.run(repo.dir, 'git', ['-c', 'core.hooksPath=/dev/null', ...args], env ? { env } : {})
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`)
+  }
+
+  it('follows main: an edited spec, a renamed folder and a removed folder reach the hub', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    await storedListing(p.id)
+
+    // commit times have 1 s resolution: put the new tip clearly after the stored one
+    const later = String(Math.floor(Date.now() / 1000) + 60)
+    const at = { GIT_AUTHOR_DATE: `${later} +0000`, GIT_COMMITTER_DATE: `${later} +0000` }
+    repo.write('specs/001-full/spec.md', `${SPEC}\nfull, edited on main\n`)
+    quiet(repo, ['add', 'specs'])
+    quiet(repo, ['mv', 'specs/002-spec-only', 'specs/005-renamed'])
+    quiet(repo, ['rm', '-q', '-r', 'specs/003-merged'])
+    quiet(repo, ['commit', '-q', '-m', 'main moves'], at)
+    quiet(repo, ['push', '-q', 'origin', 'main'])
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+
+    const edited = blob(repo, 'specs/001-full/spec.md')
+    const rows = await waitFor(async () => {
+      const r = await landedOf(p.id)
+      return r.find((x) => x.dir === '001-full')?.specOid === edited ? r : undefined
+    }, 'main listing')
+    expect(rows.map((r) => r.dir)).toEqual(['001-full', '005-renamed'])
+    expect(rows.find((r) => r.dir === '005-renamed')?.specOid).toBe(blob(repo, 'specs/005-renamed/spec.md'))
+  })
+
+  it('a second commit after a stored listing sends no features and uploads nothing', async () => {
+    const { repo, project: p } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    await storedListing(p.id)
+    // observed through the document table (the in-process hub's PUT /blobs/ requests are not counted)
+    const documents = async () => (await db.select({ oid: document.oid }).from(document)).length
+    const before = await documents()
+
+    quiet(repo, ['checkout', '-q', '-b', 'tweak'])
+    repo.write('README.md', '# test\n\nchanged\n')
+    quiet(repo, ['-c', 'user.name=T', '-c', 'user.email=t@example.test', 'commit', '-q', '-am', 'readme'])
+    expect(await printDefault(repo)).not.toHaveProperty('features')
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    expect(await documents()).toBe(before)
+  })
+
+  it('GET /config carries finishedTipAt in Unix seconds, null before any listing', async () => {
+    const { project: p, token } = await connectedClone()
+    const config = async () =>
+      (await (
+        await fetch(`http://127.0.0.1:${hub.port}/api/r/${p.slug}/config`, {
+          headers: { Authorization: `Bearer ${token.key}` },
+        })
+      ).json()) as { finishedTipAt: number | null }
+    await forgetTips(p.id)
+    expect((await config()).finishedTipAt).toBeNull()
+    await db
+      .update(project)
+      .set({ finishedTipAt: new Date(1_700_000_000_999) })
+      .where(eq(project.id, p.id))
+    expect((await config()).finishedTipAt).toBe(1_700_000_000)
+  })
+
+  it('a clone that lacks the hub tip commit but is not newer than the hub sends no listing', async () => {
+    const { sb, repo, project: p, token } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+
+    // a second clone of the same origin, as another member would have it
+    sb.git(sb.root, 'clone', '-q', join(sb.root, 'clone-origin.git'), 'second')
+    const second = new Repo(sb, join(sb.root, 'second'))
+    await second.connect(token.key)
+    await db
+      .update(project)
+      .set({ finishedTip: '1'.repeat(40), finishedTipAt: new Date() })
+      .where(eq(project.id, p.id))
+    expect(await printDefault(second)).not.toHaveProperty('features')
+  })
+
+  it('a shallow clone sends no listing even when the hub has none', async () => {
+    const { sb, project: p, token } = await connectedClone()
+    sb.git(sb.root, 'clone', '-q', '--depth', '1', `file://${join(sb.root, 'clone-origin.git')}`, 'shallow')
+    const shallow = new Repo(sb, join(sb.root, 'shallow'))
+    expect(shallow.git('rev-parse', '--is-shallow-repository').trim()).toBe('true')
+    await shallow.connect(token.key)
+    await forgetTips(p.id)
+    expect(await printDefault(shallow)).not.toHaveProperty('features')
+  })
+
+  it('a manifest without features, as an older reporter sends it, changes no finished feature', async () => {
+    const { repo, project: p, token } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    const before = await storedListing(p.id)
+    const stored = await projectRow(p.id)
+
+    // the hub has the tip now, so the reporter leaves the listing out
+    const manifest = JSON.parse((await repo.spechub(['report', '--print-manifest'])).stdout)
+    expect(manifest.default).not.toHaveProperty('features')
+    manifest.cloneId = randomUUID()
+    manifest.generatedAt = Date.now()
+    manifest.default.tipAt += 60
+    const res = await fetch(`http://127.0.0.1:${hub.port}/api/r/${p.slug}/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(manifest),
+    })
+    expect(res.status).toBe(200)
+
+    const after = await projectRow(p.id)
+    expect(after.defaultTipAt!.getTime()).toBe(stored.defaultTipAt!.getTime() + 60_000) // it was applied
+    expect(after.finishedTipAt).toEqual(stored.finishedTipAt)
+    expect(await landedOf(p.id)).toEqual(before)
+  })
+
+  // ---- extra documents (FR-014–FR-016)
+
+  const PREVIEW = '# Preview\n\nWhat it looks like.\n'
+  /** Adds a documents line to the work tree's config (read by every report, hooks included). */
+  const setDocuments = (repo: Repo, value: string) =>
+    writeFileSync(
+      join(repo.dir, CONFIG),
+      `${readFileSync(join(repo.dir, CONFIG), 'utf8')}documents: ${value}\n`,
+    )
+  type Manifest = {
+    default: { features?: DefaultFeature[] }
+    branches: { name: string; features: { dir: string; extra?: DefaultFeature['extra'] }[] }[]
+  }
+  const printManifest = async (repo: Repo) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    return { text: r.stdout, manifest: JSON.parse(r.stdout) as Manifest }
+  }
+  const branchFeature = (m: Manifest, branch: string, dir: string) =>
+    m.branches.find((b) => b.name === branch)?.features.find((f) => f.dir === dir)
+
+  it('reports and uploads a configured extra document of a branch feature', async () => {
+    const { repo, cloneId } = await connectedClone()
+    setDocuments(repo, 'preview.md')
+    repo.git('checkout', '-q', '-b', '007-x')
+    repo.write('specs/007-x/spec.md', SPEC)
+    repo.write('specs/007-x/preview.md', PREVIEW)
+    repo.write('specs/007-x/notes.md', 'not configured\n')
+    repo.write('specs/007-x/sub/preview.md', 'not top level\n')
+    repo.commit(['specs/007-x'], 'feature with a preview')
+    const oid = repo.git('rev-parse', 'HEAD:specs/007-x/preview.md').trim()
+    const extra = [{ name: 'preview.md', oid, size: PREVIEW.length }]
+
+    expect(branchFeature((await printManifest(repo)).manifest, '007-x', '007-x')?.extra).toEqual(extra)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    const row = await waitFor(async () => {
+      const f = await featureRow(cloneId, '007-x', '007-x')
+      return f?.extraDocs.length ? f : undefined
+    }, 'feature 007-x with its extra document')
+    expect(row.extraDocs).toEqual(extra)
+    await waitFor(
+      async () => ((await db.select().from(document).where(eq(document.oid, oid))).length ? true : undefined),
+      'uploaded preview.md',
+    )
+  })
+
+  it('reports a configured extra document of a default branch feature', async () => {
+    const { repo, project: p } = await connectedClone()
+    setDocuments(repo, 'preview.md')
+    repo.write('specs/001-full/preview.md', PREVIEW)
+    buildMain(repo)
+    await forgetTips(p.id)
+
+    const features = (await printDefault(repo)).features!
+    expect(features.find((f) => f.dir === '001-full')?.extra).toEqual([
+      { name: 'preview.md', oid: blob(repo, 'specs/001-full/preview.md'), size: PREVIEW.length },
+    ])
+    for (const f of features.filter((x) => x.dir !== '001-full')) expect(f).not.toHaveProperty('extra')
+  })
+
+  it('without the documents key no feature carries extra documents', async () => {
+    const { repo, project: p } = await connectedClone()
+    repo.write('specs/001-full/preview.md', PREVIEW)
+    buildMain(repo)
+    await forgetTips(p.id)
+    // hooks off: a background report would store the listing and drop it from the next manifest
+    quiet(repo, ['checkout', '-q', '-b', '008-y'])
+    repo.write('specs/008-y/spec.md', SPEC)
+    repo.write('specs/008-y/preview.md', PREVIEW)
+    quiet(repo, ['add', 'specs'])
+    quiet(repo, ['commit', '-q', '-m', 'feature with a preview'])
+
+    const { text, manifest } = await printManifest(repo)
+    expect(manifest.default.features).toHaveLength(3)
+    expect(branchFeature(manifest, '008-y', '008-y')).toBeDefined()
+    expect(text).not.toContain('"extra"')
+  })
+
+  it('ignores invalid and reserved names in the documents key', async () => {
+    const { repo } = await connectedClone()
+    setDocuments(repo, '../x.md spec.md preview.md')
+    repo.git('checkout', '-q', '-b', '009-z')
+    repo.write('specs/009-z/spec.md', SPEC)
+    repo.write('specs/009-z/preview.md', PREVIEW)
+    repo.write('specs/x.md', 'outside the feature folder\n')
+    repo.commit(['specs'], 'feature with a preview')
+
+    const extra = branchFeature((await printManifest(repo)).manifest, '009-z', '009-z')?.extra
+    expect(extra?.map((e) => e.name)).toEqual(['preview.md'])
   })
 })

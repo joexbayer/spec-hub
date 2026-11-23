@@ -9,6 +9,8 @@
 - **Annotations**: every tool has `readOnlyHint: true` (FR-024). There are no other tools in this
   feature, and no tool can ever approve or object (Art. 4.1).
 
+Spec 005 adds the `finished` tool and a `branch` argument to `feature`: see [005's MCP contract](../../005-finished-features/contracts/mcp.md).
+
 ## `board`
 
 - **Input**: none.
