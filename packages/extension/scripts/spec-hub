@@ -450,17 +450,16 @@ END {
 }'
 
 # default_features: sets FEATURES to ',"features":[...]' (the default branch's feature folders,
-# DEFAULT_AWK), or empty when the hub already has them (GET /config's finishedTip is $base_tip or
-# a descendant of it) or on any failure: the report then goes out without them.
+# DEFAULT_AWK), or empty when the hub already has them (GET /config's finishedTipAt is not older
+# than $base_at: the hub's own rule for ignoring a listing), in a shallow clone (its history
+# misattributes owners and landing times) or on any failure: the report then goes out without them.
 default_features() {
   FEATURES=
-  hub_tip=
-  [ -f "$TMP/config" ] && hub_tip=$(tr -d '\n' < "$TMP/config" |
-    sed -n -E 's/.*"finishedTip"[[:space:]]*:[[:space:]]*"([0-9a-f]+)".*/\1/p')
-  if [ -n "$hub_tip" ]; then
-    [ "$hub_tip" = "$base_tip" ] && return 0
-    git merge-base --is-ancestor "$base_tip" "$hub_tip" 2>/dev/null && return 0
-  fi
+  hub_at=
+  [ -f "$TMP/config" ] && hub_at=$(tr -d '\n' < "$TMP/config" |
+    sed -n -E 's/.*"finishedTipAt"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')
+  [ -n "$hub_at" ] && [ "$base_at" -le "$hub_at" ] 2>/dev/null && return 0
+  [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ] && return 0
   FEATURES=$({
     git ls-tree -r -t -z -l "$base" -- specs/ && printf '\003\000' &&
     git log --no-show-signature --first-parent --diff-merges=first-parent -z --format=%x01%ct \

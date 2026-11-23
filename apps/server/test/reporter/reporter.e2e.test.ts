@@ -442,8 +442,9 @@ describe('default branch listing (finished features)', () => {
   const blob = (repo: Repo, path: string) => repo.git('rev-parse', `origin/main:${path}`).trim()
 
   it('lists every feature on the default branch with its docs, owner and merge time', async () => {
-    const { repo } = await connectedClone()
+    const { repo, project: p } = await connectedClone()
     buildMain(repo)
+    await forgetTips(p.id)
 
     const features = (await printDefault(repo)).features!
     expect(features.map((f) => f.dir)).toEqual(['001-full', '002-spec-only', '003-merged'])
@@ -469,8 +470,9 @@ describe('default branch listing (finished features)', () => {
   })
 
   it('uploads the default branch documents with a real report, and the commit stays silent', async () => {
-    const { repo, cloneId } = await connectedClone()
+    const { repo, cloneId, project: p } = await connectedClone()
     buildMain(repo)
+    await forgetTips(p.id)
     const oids = [
       'specs/001-full/spec.md',
       'specs/001-full/plan.md',
@@ -495,6 +497,7 @@ describe('default branch listing (finished features)', () => {
   it('leaves the listing out while the hub already has the default branch tip', async () => {
     const { repo, project: p } = await connectedClone()
     buildMain(repo)
+    await forgetTips(p.id)
     expect((await printDefault(repo)).features).toHaveLength(3)
 
     const tip = repo.git('rev-parse', 'origin/main').trim()
@@ -558,52 +561,65 @@ describe('default branch listing (finished features)', () => {
     expect(rows.find((r) => r.dir === '005-renamed')?.specOid).toBe(blob(repo, 'specs/005-renamed/spec.md'))
   })
 
-  it('a clone behind the hub sends no listing; one that cannot tell sends it and is ignored as older', async () => {
-    const { sb, repo, project: p, token } = await connectedClone()
+  it('a second commit after a stored listing sends no features and uploads nothing', async () => {
+    const { repo, project: p } = await connectedClone()
     buildMain(repo)
     await forgetTips(p.id)
     expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
-    const before = await storedListing(p.id)
+    await storedListing(p.id)
+    // observed through the document table (the in-process hub's PUT /blobs/ requests are not counted)
+    const documents = async () => (await db.select({ oid: document.oid }).from(document)).length
+    const before = await documents()
+
+    quiet(repo, ['checkout', '-q', '-b', 'tweak'])
+    repo.write('README.md', '# test\n\nchanged\n')
+    quiet(repo, ['-c', 'user.name=T', '-c', 'user.email=t@example.test', 'commit', '-q', '-am', 'readme'])
+    expect(await printDefault(repo)).not.toHaveProperty('features')
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    expect(await documents()).toBe(before)
+  })
+
+  it('GET /config carries finishedTipAt in Unix seconds, null before any listing', async () => {
+    const { project: p, token } = await connectedClone()
+    const config = async () =>
+      (await (
+        await fetch(`http://127.0.0.1:${hub.port}/api/r/${p.slug}/config`, {
+          headers: { Authorization: `Bearer ${token.key}` },
+        })
+      ).json()) as { finishedTipAt: number | null }
+    await forgetTips(p.id)
+    expect((await config()).finishedTipAt).toBeNull()
+    await db
+      .update(project)
+      .set({ finishedTipAt: new Date(1_700_000_000_999) })
+      .where(eq(project.id, p.id))
+    expect((await config()).finishedTipAt).toBe(1_700_000_000)
+  })
+
+  it('a clone that lacks the hub tip commit but is not newer than the hub sends no listing', async () => {
+    const { sb, repo, project: p, token } = await connectedClone()
+    buildMain(repo)
+    await forgetTips(p.id)
 
     // a second clone of the same origin, as another member would have it
     sb.git(sb.root, 'clone', '-q', join(sb.root, 'clone-origin.git'), 'second')
     const second = new Repo(sb, join(sb.root, 'second'))
     await second.connect(token.key)
-
-    // the hub is ahead: its tip is a descendant of the clone's origin/main
-    quiet(second, [
-      '-c',
-      'user.name=T',
-      '-c',
-      'user.email=t@example.test',
-      'commit',
-      '-q',
-      '--allow-empty',
-      '-m',
-      'ahead',
-    ])
-    const ahead = second.git('rev-parse', 'HEAD').trim()
     await db
       .update(project)
-      .set({ finishedTip: ahead, finishedTipAt: new Date() })
+      .set({ finishedTip: '1'.repeat(40), finishedTipAt: new Date() })
       .where(eq(project.id, p.id))
     expect(await printDefault(second)).not.toHaveProperty('features')
+  })
 
-    // the hub's tip is a commit the clone does not have: it cannot prove it is behind
-    const unknown = '1'.repeat(40)
-    const newer = new Date(Date.now() + 3_600_000)
-    await db.update(project).set({ finishedTip: unknown, finishedTipAt: newer }).where(eq(project.id, p.id))
-    expect((await printDefault(second)).features).toHaveLength(3)
-
-    // a real report proves the hub took it (the branch) and ignored the listing
-    quiet(second, ['checkout', '-q', '-b', '006-second'])
-    second.write('specs/006-second/spec.md', SPEC)
-    quiet(second, ['add', 'specs'])
-    quiet(second, ['-c', 'user.name=T', '-c', 'user.email=t@example.test', 'commit', '-q', '-m', 'second'])
-    expect((await second.spechub(['report', '--quiet'])).status).toBe(0)
-    await waitFor(() => featureRow(second.cloneId(), '006-second', '006-second'), 'second clone report')
-    expect((await projectRow(p.id)).finishedTip).toBe(unknown)
-    expect(await landedOf(p.id)).toEqual(before)
+  it('a shallow clone sends no listing even when the hub has none', async () => {
+    const { sb, project: p, token } = await connectedClone()
+    sb.git(sb.root, 'clone', '-q', '--depth', '1', `file://${join(sb.root, 'clone-origin.git')}`, 'shallow')
+    const shallow = new Repo(sb, join(sb.root, 'shallow'))
+    expect(shallow.git('rev-parse', '--is-shallow-repository').trim()).toBe('true')
+    await shallow.connect(token.key)
+    await forgetTips(p.id)
+    expect(await printDefault(shallow)).not.toHaveProperty('features')
   })
 
   it('a manifest without features, as an older reporter sends it, changes no finished feature', async () => {
