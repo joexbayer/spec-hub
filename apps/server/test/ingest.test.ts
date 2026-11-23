@@ -11,6 +11,7 @@ import {
   project,
   securityEvent,
 } from '../src/db/schema.ts'
+import { loadFeature, loadFinished } from '../src/services/board-query.ts'
 import {
   addMember,
   createProject,
@@ -440,6 +441,37 @@ describe('finished features (default.features)', () => {
     expect(await rows()).toMatchObject([{ dir: '001-a' }])
     await report(manifest(CLONE, 300, [], { tipAt: T0 + 200, dirs: [], features: [] }))
     expect(await rows()).toHaveLength(0)
+  })
+
+  it('keeps a folder landed by a newer dirs step when an older features listing arrives', async () => {
+    const { report } = await setup()
+    await report(manifest(CLONE, 100, [], { tipAt: T0, dirs: ['001-a'], features: [defFeature('001-a')] }))
+    // T3: a dirs-only manifest lands X
+    await report(manifest(CLONE, 200, [], { tipAt: T0 + 200, dirs: ['001-a', '002-x'] }))
+    // T2 (T1 < T2 < T3): a features listing from before X landed
+    await report(
+      manifest(CLONE, 300, [], { tipAt: T0 + 100, dirs: ['001-a'], features: [defFeature('001-a')] }),
+    )
+    expect((await rows()).map((r) => r.dir)).toEqual(['001-a', '002-x'])
+  })
+
+  it('stores a too-large marker for a default-branch spec and surfaces it', async () => {
+    const { report } = await setup()
+    const big = { oid: 'f'.repeat(40), size: 600 * 1024 }
+    expect(
+      (
+        await report(
+          manifest(CLONE, 100, [], { tipAt: T0, dirs: ['001-big'], features: [defFeature('001-big', big)] }),
+        )
+      ).status,
+    ).toBe(200)
+    const [row] = await db.select().from(document).where(eq(document.oid, big.oid))
+    expect(row).toMatchObject({ tooLarge: true, content: null, size: big.size })
+    const { id } = (await proj()) as { id: string }
+    const detail = await loadFeature(db, id, '001-big')
+    expect(detail?.shown?.docs.spec).toMatchObject({ tooLarge: true, content: null })
+    const { finished } = await loadFinished(db, id)
+    expect(finished.map((f) => f.dir)).toEqual(['001-big'])
   })
 
   it('leaves finished rows alone when a newer manifest has no features', async () => {

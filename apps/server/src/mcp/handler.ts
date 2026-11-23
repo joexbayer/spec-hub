@@ -135,7 +135,11 @@ const mcp = createMcpHandler(({ authInfo }) => {
     },
     guarded('finished', async ({ query, owner }: { query?: string; owner?: string }) => {
       const data = await loadFinished(db, caller.projectId)
-      const matched = matchFinished(data.finished, query ?? '', owner?.replace(/^@/, ''))
+      const ownerName = owner?.replace(/^@/, '')
+      const matched = matchFinished(data.finished, query ?? '', ownerName)
+      if (ownerName && !query?.trim() && matched.length === 0 && data.finished.length > 0) {
+        return text(`No finished feature by ${oneLine(ownerName)}.`)
+      }
       return text(
         formatFinished(caller.projectSlug, data.defaultBranch, data.finished.length, matched, query),
       )

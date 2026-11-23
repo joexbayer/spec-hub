@@ -183,6 +183,8 @@ describe('MCP finished', () => {
     expect(byOwner).not.toContain('Billing')
     const none = textOf(await client.callTool({ name: 'finished', arguments: { query: 'zzz' } }))
     expect(none).toBe('No finished feature matches "zzz".')
+    const noOwner = textOf(await client.callTool({ name: 'finished', arguments: { owner: 'nobody' } }))
+    expect(noOwner).toBe('No finished feature by nobody.')
   })
 
   it('feature with branch main returns the default branch spec of a feature also on a branch', async () => {
@@ -198,6 +200,12 @@ describe('MCP finished', () => {
     expect(textOf(main)).toContain('Main text of Ledger')
     const info = textOf(await client.callTool({ name: 'feature', arguments: { id: '104' } }))
     expect(info).toContain('Also finished on main; ask with branch "main" for that version')
+    const fin = textOf(await client.callTool({ name: 'feature', arguments: { id: '104', branch: 'main' } }))
+    expect(fin).toContain('Landed')
+    expect(fin).toContain('Also in flight on main-work')
+    expect(fin).not.toContain('Phase:')
+    expect(fin).not.toContain('Branch main-work')
+    expect(fin).not.toContain('Also finished on')
   })
 })
 

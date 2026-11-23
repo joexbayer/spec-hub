@@ -30,7 +30,7 @@ export const boardRoutes = new Hono<AppEnv>()
     ])
     const lastReportAt: Record<string, number> = {}
     for (const r of reports) if (r.at) lastReportAt[r.userId] = r.at.getTime()
-    return c.json({ board, lastReportAt })
+    return c.json({ board, lastReportAt, defaultBranch: c.var.project.defaultBranch })
   })
   .get('/projects/:slug/finished', ...guard, async (c) => c.json(await loadFinished(db, c.var.project.id)))
   .get(

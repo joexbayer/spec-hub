@@ -1,7 +1,15 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../src/db/client.ts'
-import { clone, cloneBranch, cloneFeature, document, landedFeature, membership } from '../src/db/schema.ts'
+import {
+  clone,
+  cloneBranch,
+  cloneFeature,
+  document,
+  landedFeature,
+  membership,
+  project,
+} from '../src/db/schema.ts'
 import { loadBoard, loadFeature } from '../src/services/board-query.ts'
 import {
   addMember,
@@ -104,7 +112,8 @@ describe('GET /api/projects/:slug/board', () => {
     const { a, b, cookie, reportA, reportB } = await setup()
     const res = await request('/api/projects/acme/board', { headers: cookie })
     expect(res.status).toBe(200)
-    const { board, lastReportAt } = await json(res)
+    const { board, lastReportAt, defaultBranch } = await json(res)
+    expect(defaultBranch).toBe('main')
     expect(board.inFlight.map((e: { dir: string }) => e.dir).sort()).toEqual(['001-alpha', '002-beta'])
     const alpha = board.inFlight.find((e: { dir: string }) => e.dir === '001-alpha')
     const beta = board.inFlight.find((e: { dir: string }) => e.dir === '002-beta')
@@ -299,7 +308,16 @@ describe('finished features', () => {
     expect(by('003-new').reported).toBe(true)
     expect(by('001-alpha').inFlight).toBe(true)
     expect(by('003-new').inFlight).toBe(false)
-    expect(body.members[0].emails).toBeUndefined()
+    expect(body.members).toBeUndefined()
+    expect(body.finishedTipAt).toBeNull()
+    const tip = new Date(Date.now() - day)
+    await db
+      .update(project)
+      .set({ finishedTip: 'a'.repeat(40), finishedTipAt: tip })
+      .where(eq(project.id, p.id))
+    expect((await json(request('/api/projects/acme/finished', { headers: cookie }))).finishedTipAt).toBe(
+      tip.getTime(),
+    )
   })
 
   it('rejects signed-out callers, non-members and unknown projects', async () => {

@@ -21,7 +21,7 @@ const row = (over: Partial<FinishedRow> = {}): FinishedRow => ({
   addedAt: 500,
   lastChangeAt: 900,
   author: null,
-  spec: null,
+  spec: doc(),
   plan: null,
   tasks: null,
   ...over,
@@ -85,6 +85,20 @@ describe('buildFinished', () => {
       '002-b',
       '003-c',
       '004-d',
+    ])
+  })
+})
+
+describe('buildFinished empty folders', () => {
+  it('drops reported rows without any document; keeps unreported ones', () => {
+    const rows = [
+      row({ dir: '001-empty', spec: null }),
+      row({ dir: '002-plan', plan: doc() }),
+      row({ dir: '003-unreported', addedAt: null, spec: null }),
+    ]
+    expect(buildFinished(rows, members, 'sequential', none).map((f) => f.dir)).toEqual([
+      '002-plan',
+      '003-unreported',
     ])
   })
 })

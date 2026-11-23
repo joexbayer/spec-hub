@@ -21,7 +21,7 @@ export function finishedFeature(
   }
 }
 
-/** Newest landedAt first, unknown last, ties by folder name. */
+/** Newest landedAt first, unknown last, ties by folder name. A reported folder with no spec, plan or tasks is no feature. */
 export function buildFinished(
   rows: FinishedRow[],
   members: MemberIdentity[],
@@ -29,6 +29,7 @@ export function buildFinished(
   activeDirs: ReadonlySet<string>,
 ): FinishedFeature[] {
   return rows
+    .filter((r) => r.addedAt === null || r.spec || r.plan || r.tasks)
     .map((r) => finishedFeature(r, members, numbering, activeDirs))
     .sort((a, b) => {
       if (a.landedAt !== b.landedAt) {

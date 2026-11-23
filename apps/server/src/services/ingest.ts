@@ -226,15 +226,17 @@ async function storeFinished(tx: Tx, p: ProjectRow, d: DefaultBranchReport): Pro
   if (p.finishedTipAt && p.finishedTipAt >= tipAt) return // an older or the same listing (FR-005)
   await tx.update(projectT).set({ finishedTip: d.tip, finishedTipAt: tipAt }).where(eq(projectT.id, p.id))
   const listed = d.features.map((f) => f.dir)
-  // removed or renamed on the default branch (FR-011)
-  await tx
-    .delete(landedFeatureT)
-    .where(
-      and(
-        eq(landedFeatureT.projectId, p.id),
-        listed.length > 0 ? notInArray(landedFeatureT.dir, listed) : undefined,
-      ),
-    )
+  // removed or renamed on the default branch (FR-011); not when a newer dirs step already ran (it would delete a just-landed folder)
+  if (!p.defaultTipAt || tipAt >= p.defaultTipAt) {
+    await tx
+      .delete(landedFeatureT)
+      .where(
+        and(
+          eq(landedFeatureT.projectId, p.id),
+          listed.length > 0 ? notInArray(landedFeatureT.dir, listed) : undefined,
+        ),
+      )
+  }
   if (d.features.length === 0) return
   const firstSeenAt = new Date()
   const baseline = isBaseline(p, tipAt)

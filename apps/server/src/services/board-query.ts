@@ -1,7 +1,6 @@
 import type {
   Board,
   BoardEntry,
-  BoardMember,
   DocFacts,
   FeatureVersion,
   FinishedFeature,
@@ -272,10 +271,14 @@ const activeDirsOf = (board: Board) => new Set([...board.inFlight, ...board.stal
 export async function loadFinished(
   db: Db,
   projectId: string,
-): Promise<{ defaultBranch: string; finished: FinishedFeature[]; members: BoardMember[] }> {
+): Promise<{ defaultBranch: string; finishedTipAt: number | null; finished: FinishedFeature[] }> {
   const [[proj], landed, members, board] = await Promise.all([
     db
-      .select({ numbering: project.numbering, defaultBranch: project.defaultBranch })
+      .select({
+        numbering: project.numbering,
+        defaultBranch: project.defaultBranch,
+        finishedTipAt: project.finishedTipAt,
+      })
       .from(project)
       .where(eq(project.id, projectId)),
     loadLandedRows(db, projectId),
@@ -285,13 +288,13 @@ export async function loadFinished(
   if (!proj) throw new Error(`project ${projectId} not found`)
   return {
     defaultBranch: proj.defaultBranch,
+    finishedTipAt: proj.finishedTipAt?.getTime() ?? null,
     finished: buildFinished(
       landed.map((l) => l.row),
       members,
       proj.numbering,
       activeDirsOf(board),
     ),
-    members: members.map(({ emails: _, ...m }) => m),
   }
 }
 

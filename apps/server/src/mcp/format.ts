@@ -129,10 +129,13 @@ export function formatFinished(
 
 export function formatFeature(detail: FeatureDetail, board: Board, now = Date.now()): string {
   const { entry, landed } = detail
+  // the finished version was asked for: describe it, and only note that the feature is in flight too
+  const finishedShown = landed !== null && detail.shown?.branch === landed.branch
   const dir = entry?.dir ?? landed?.dir ?? ''
-  const title = entry?.title ?? landed?.finished.title ?? titleFromDir(dir)
+  const title =
+    (finishedShown ? landed.finished.title : entry?.title) ?? landed?.finished.title ?? titleFromDir(dir)
   const lines = [`${oneLine(title, 80)} — ${oneLine(dir)}`]
-  if (entry) {
+  if (entry && !finishedShown) {
     lines.push(`Owner: ${ownerLabel(entry.owner)}`)
     const open = entry.openClarifications > 0 ? `, ${entry.openClarifications} open clarifications` : ''
     lines.push(`Phase: ${phaseLabel(entry.phase)}${open}`)
@@ -151,14 +154,19 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
     }
   }
   if (landed) {
-    if (!entry) {
+    if (!entry || finishedShown) {
       lines.push(`Owner: ${ownerLabel(landed.finished.owner)}`)
       const t = landed.finished.tasks
       if (t) lines.push(`Tasks: ${t.done}/${t.total}`)
     }
     const at = landed.finished.landedAt
     lines.push(`Landed ${at === null ? 'at an unknown time' : age(at, now)}`)
-    if (entry) {
+    if (entry && finishedShown) {
+      const names = newestFirst(entry.branches)
+        .slice(0, MAX_FEATURE_BRANCHES)
+        .map((b) => oneLine(b.branch))
+      lines.push(`Also in flight on ${names.join(', ')}`)
+    } else if (entry) {
       const b = oneLine(landed.branch)
       lines.push(`Also finished on ${b}; ask with branch "${b}" for that version`)
     }
