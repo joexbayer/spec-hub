@@ -233,12 +233,16 @@ function owner_line(line,   p) {
 
 # MANIFEST_AWK: helpers shared by FEATURES_AWK, BRANCHES_AWK and DEFAULT_AWK (with JS_AWK).
 # meta(line, m) splits an ls-tree -l line: m[1..4] = mode type oid size, returns the path.
-# dirpart(p) sets D and F from "specs/D/F..." (false for other paths). docref(d, f) is doc[d, f]
-# ("oid size") or "-"; docjs and authorjs turn those and "name\037email" into JSON. The hub
+# dirpart(p) sets D and F from "specs/D/F..." (false for other paths). isdoc(f) is true for the
+# documents to collect: spec, plan, tasks and the extra names (awk -v extra_names=..., checked by
+# extra_names()). docref(d, f) is doc[d, f] ("oid size") or "-"; docjs and authorjs turn those and
+# "name\037email" into JSON, extrajs(d) the dir's extra documents into ',"extra":[...]' (empty
+# when none, in extra_names order). The hub
 # refuses times in the future (a skewed clock or imported history would otherwise block every
 # report), so clamp(t) bounds commit times by now (awk -v now=...).
 # shellcheck disable=SC2016 # awk program
 MANIFEST_AWK="$JS_AWK"'
+BEGIN { nx = split(extra_names, xn, " "); for (xi = 1; xi <= nx; xi++) isx[xn[xi]] = 1 }
 function meta(line, m,   i) { i = index(line, "\t"); split(substr(line, 1, i - 1), m, " "); return substr(line, i + 1) }
 function dirpart(p,   rest, j) {
   if (substr(p, 1, 6) != "specs/") return 0
@@ -246,7 +250,16 @@ function dirpart(p,   rest, j) {
   if (!j) { D = rest; F = ""; return 1 }
   D = substr(rest, 1, j - 1); F = substr(rest, j + 1); return 1
 }
+function isdoc(f) { return f == "spec.md" || f == "plan.md" || f == "tasks.md" || (f in isx) }
 function docref(d, f) { return ((d, f) in doc) ? doc[d, f] : "-" }
+function extrajs(d,   i, s, x) {
+  s = ""
+  for (i = 1; i <= nx; i++) if ((d, xn[i]) in doc) {
+    split(doc[d, xn[i]], x, " ")
+    s = s (s == "" ? "" : ",") "{\"name\":\"" xn[i] "\",\"oid\":\"" x[1] "\",\"size\":" x[2] "}"
+  }
+  return (s == "") ? "" : ",\"extra\":[" s "]"
+}
 function docjs(v,   x) { if (v == "-") return "null"; split(v, x, " "); return "{\"oid\":\"" x[1] "\",\"size\":" x[2] "}" }
 function authorjs(a,   i, n, e) {
   i = index(a, "\037")
@@ -262,9 +275,9 @@ function clamp(t) { return (t + 0 > now + 0) ? now : t }'
 # separated by a "\003" line: the paths REF changed since leaving BASE (git diff --name-only),
 # REF's specs/ (ls-tree -r -t -l) and the commits since leaving BASE (OWNER_AWK's log). For each
 # dir that changed and still differs from BASE (FR-012) it prints
-#   F <tab> dir <tab> lastChangeAt <tab> spec <tab> plan <tab> tasks <tab> owner
-# with docs as "oid size" or "-", and owner "\002name\037email" when an add was found since
-# leaving BASE, else "\004<path>" (the spec.md path to look up in BASE's history), or empty
+#   F <tab> dir <tab> lastChangeAt <tab> spec <tab> plan <tab> tasks <tab> extra <tab> owner
+# with docs as "oid size" or "-", extra as extrajs(dir) (JSON, no tabs; before owner, which may
+# hold a tab), and owner "\002name\037email" when an add was found since leaving BASE, else "\004<path>" (the spec.md path to look up in BASE's history), or empty
 # without a BASE. When none of those dirs exists in BASE it prints at most 200 lines to stdout.
 # Otherwise it writes all of them to ENVIRON["ONBASE"], with "C" instead of "F" for the dirs
 # that exist in BASE: those may have landed by rebase or cherry-pick (KEEP_AWK decides).
@@ -284,7 +297,7 @@ sec == 1 {
   if (!index($0, "\t")) next
   if (!dirpart(meta($0, m))) next
   if (F == "") { if (m[2] == "tree") tree[D] = m[3] }
-  else if (m[2] == "blob" && (F == "spec.md" || F == "plan.md" || F == "tasks.md")) doc[D, F] = m[3] " " m[4]
+  else if (m[2] == "blob" && isdoc(F)) doc[D, F] = m[3] " " m[4]
   next
 }
 { if (dirpart(owner_line($0)) && F != "" && !(D in at)) at[D] = T }
@@ -301,7 +314,7 @@ END {
     if (d in added) a = "\002" added[d]
     else if (has_base) a = "\004" end[d]
     else a = ""
-    l = sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", ((d in base) ? "C" : "F"), d, ((d in at) ? at[d] : tip_at), docref(d, "spec.md"), docref(d, "plan.md"), docref(d, "tasks.md"), a)
+    l = sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", ((d in base) ? "C" : "F"), d, ((d in at) ? at[d] : tip_at), docref(d, "spec.md"), docref(d, "plan.md"), docref(d, "tasks.md"), extrajs(d), a)
     if (onbase) print l > ENVIRON["ONBASE"]
     else if (k <= 200) print l
   }
@@ -350,7 +363,8 @@ branch_features() {
     printf '\003\000'
     git log --no-show-signature -M -z --format=%x01%ct%x1f%an%x1f%ae --name-status "${base:+$base..}$r" -- specs/
   } | tr '\n\000' '\001\n' |
-    ONBASE=$TMP/onbase awk -v tip_at="$2" -v has_base="${base:+1}" "$FEATURES_AWK" "$TMP/basetrees" -
+    ONBASE=$TMP/onbase awk -v tip_at="$2" -v has_base="${base:+1}" -v extra_names="$extra" \
+      "$FEATURES_AWK" "$TMP/basetrees" -
   [ -s "$TMP/onbase" ] || return 0
   git log --no-show-signature --cherry-pick --right-only --no-merges -z --name-only --format=%x01 \
     "$base...$r" -- specs/ | tr '\n\000' '\001\n' | awk "$KEEP_AWK" "$TMP/onbase" -
@@ -365,8 +379,8 @@ function owner_found(ids,   n, x, k) { n = split(ids, x, " "); for (k = 1; k <= 
 FILENAME == ARGV[1] && /^B\t/ { nb++; split($0, x, "\t"); bn[nb] = x[2]; bt[nb] = x[3]; bat[nb] = x[4]; bp[nb] = x[5]; bf[nb] = ng + 1; bl[nb] = ng; next }
 FILENAME == ARGV[1] && /^F\t/ {
   line = substr($0, 3)
-  for (k = 1; k <= 5; k++) { i = index(line, "\t"); x[k] = substr(line, 1, i - 1); line = substr(line, i + 1) }
-  ng++; fd[ng] = x[1]; fat[ng] = x[2]; d1[ng] = x[3]; d2[ng] = x[4]; d3[ng] = x[5]; bl[nb] = ng
+  for (k = 1; k <= 6; k++) { i = index(line, "\t"); x[k] = substr(line, 1, i - 1); line = substr(line, i + 1) }
+  ng++; fd[ng] = x[1]; fat[ng] = x[2]; d1[ng] = x[3]; d2[ng] = x[4]; d3[ng] = x[5]; fx[ng] = x[6]; bl[nb] = ng
   if (substr(line, 1, 1) == "\002") fa[ng] = substr(line, 2)
   else if (substr(line, 1, 1) == "\004") { p = substr(line, 2); tgt[p] = (p in tgt) ? tgt[p] " " ng : ng }
   next
@@ -377,7 +391,7 @@ END {
     feats = ""; sep = ""
     for (g = bf[b]; g <= bl[b]; g++) {
       feats = feats sep "{\"dir\":" js(fd[g]) ",\"lastChangeAt\":" clamp(fat[g]) ",\"author\":" authorjs(fa[g]) \
-        ",\"docs\":{\"spec\":" docjs(d1[g]) ",\"plan\":" docjs(d2[g]) ",\"tasks\":" docjs(d3[g]) "}}"
+        ",\"docs\":{\"spec\":" docjs(d1[g]) ",\"plan\":" docjs(d2[g]) ",\"tasks\":" docjs(d3[g]) "}" fx[g] "}"
       sep = ","
     }
     printf "%s{\"name\":%s,\"tip\":\"%s\",\"tipAt\":%s,\"pushed\":%s,\"features\":[%s]}", (b > 1 ? "," : ""), js(bn[b]), bt[b], clamp(bat[b]), bp[b], feats
@@ -429,7 +443,7 @@ sec == 0 {
   if (!index($0, "\t") || !dirpart(meta($0, m))) next
   if (F == "") {
     if (m[2] == "tree" && length(D) <= 255 && D !~ /[[:cntrl:]]/ && !(D in isdir) && n < 2000) { isdir[D] = 1; order[++n] = D }
-  } else if (m[2] == "blob" && (F == "spec.md" || F == "plan.md" || F == "tasks.md")) doc[D, F] = m[3] " " m[4]
+  } else if (m[2] == "blob" && isdoc(F)) doc[D, F] = m[3] " " m[4]
   next
 }
 sec == 1 {
@@ -443,9 +457,9 @@ END {
   if (sec != 3) exit 1
   for (k = 1; k <= n; k++) {
     d = order[k]
-    printf "%s{\"dir\":%s,\"addedAt\":%s,\"lastChangeAt\":%s,\"author\":%s,\"docs\":{\"spec\":%s,\"plan\":%s,\"tasks\":%s}}", \
+    printf "%s{\"dir\":%s,\"addedAt\":%s,\"lastChangeAt\":%s,\"author\":%s,\"docs\":{\"spec\":%s,\"plan\":%s,\"tasks\":%s}%s}", \
       (k > 1 ? "," : ""), js(d), clamp((d in first) ? first[d] : tip_at), clamp((d in last) ? last[d] : tip_at), \
-      authorjs(who[d]), docjs(docref(d, "spec.md")), docjs(docref(d, "plan.md")), docjs(docref(d, "tasks.md"))
+      authorjs(who[d]), docjs(docref(d, "spec.md")), docjs(docref(d, "plan.md")), docjs(docref(d, "tasks.md")), extrajs(d)
   }
 }'
 
@@ -466,7 +480,8 @@ default_features() {
       --name-only "$base" -- specs/ && printf '\003\000' &&
     git log --no-show-signature -M -z --diff-filter=AR --format=%x01%ct%x1f%an%x1f%ae --name-status \
       "$base" -- specs/ && printf '\003\000'
-  } 2>/dev/null | tr '\n\000' '\001\n' | awk -v now="$(date +%s)" -v tip_at="$base_at" "$DEFAULT_AWK") &&
+  } 2>/dev/null | tr '\n\000' '\001\n' |
+    awk -v now="$(date +%s)" -v tip_at="$base_at" -v extra_names="$extra" "$DEFAULT_AWK") &&
     FEATURES=",\"features\":[$FEATURES]" || FEATURES=
 }
 
@@ -480,6 +495,29 @@ generated_at() {
   printf '%s%03d' "$(date +%s)" "$n"
 }
 
+# extra_names: the "documents" config value, keeping the names the hub accepts
+# (^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md$, not spec, plan or tasks.md), each once, at most 5.
+extra_names() (
+  set -f   # the value is split into words, never globbed
+  # shellcheck disable=SC2046 # word splitting intended
+  set -- $(cfg documents)
+  list=
+  n=0
+  for x in "$@"; do
+    case "$x" in
+      spec.md|plan.md|tasks.md|*[!A-Za-z0-9._-]*) continue ;;
+      [A-Za-z0-9]*.md) ;;
+      *) continue ;;
+    esac
+    [ ${#x} -le 67 ] || continue
+    case " $list " in *" $x "*) continue ;; esac
+    list="$list${list:+ }$x"
+    n=$((n + 1))
+    [ "$n" -lt 5 ] || break
+  done
+  printf '%s\n' "$list"
+)
+
 # build_manifest FILE: write the manifest and $TMP/data (B and F lines, for the counts).
 # Returns 1 when the clone has no cloneId, 2 (MESSAGE set) when the remote has no default branch.
 build_manifest() {
@@ -488,6 +526,7 @@ build_manifest() {
   [ -n "$clone_id" ] || return 1
   remote=$(cfg remote)
   remote=${remote:-origin}
+  extra=$(extra_names)
   git for-each-ref --format='%(refname)%09%(objectname)%09%(committerdate:unix)' \
     "refs/remotes/$remote/" > "$TMP/remote" 2>/dev/null
   base=

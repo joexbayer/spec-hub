@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../../src/db/client.ts'
 import { apikey, cloneBranch, cloneFeature, document, landedFeature, project } from '../../src/db/schema.ts'
 import { addMember, createProject, createToken, createUser, truncateAll } from '../helpers.ts'
-import { type Hub, Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
+import { CONFIG, type Hub, Repo, Sandbox, startHub, stopHub, waitFor } from './harness.ts'
 
 let hub: Hub
 let seq = 0
@@ -433,6 +433,7 @@ describe('default branch listing (finished features)', () => {
     lastChangeAt: number
     author: { name: string; email: string } | null
     docs: Record<'spec' | 'plan' | 'tasks', { oid: string; size: number } | null>
+    extra?: { name: string; oid: string; size: number }[]
   }
   const printDefault = async (repo: Repo) => {
     const r = await repo.spechub(['report', '--print-manifest'])
@@ -647,5 +648,96 @@ describe('default branch listing (finished features)', () => {
     expect(after.defaultTipAt!.getTime()).toBe(stored.defaultTipAt!.getTime() + 60_000) // it was applied
     expect(after.finishedTipAt).toEqual(stored.finishedTipAt)
     expect(await landedOf(p.id)).toEqual(before)
+  })
+
+  // ---- extra documents (FR-014–FR-016)
+
+  const PREVIEW = '# Preview\n\nWhat it looks like.\n'
+  /** Adds a documents line to the work tree's config (read by every report, hooks included). */
+  const setDocuments = (repo: Repo, value: string) =>
+    writeFileSync(
+      join(repo.dir, CONFIG),
+      `${readFileSync(join(repo.dir, CONFIG), 'utf8')}documents: ${value}\n`,
+    )
+  type Manifest = {
+    default: { features?: DefaultFeature[] }
+    branches: { name: string; features: { dir: string; extra?: DefaultFeature['extra'] }[] }[]
+  }
+  const printManifest = async (repo: Repo) => {
+    const r = await repo.spechub(['report', '--print-manifest'])
+    expect(r).toMatchObject({ status: 0, stderr: '' })
+    return { text: r.stdout, manifest: JSON.parse(r.stdout) as Manifest }
+  }
+  const branchFeature = (m: Manifest, branch: string, dir: string) =>
+    m.branches.find((b) => b.name === branch)?.features.find((f) => f.dir === dir)
+
+  it('reports and uploads a configured extra document of a branch feature', async () => {
+    const { repo, cloneId } = await connectedClone()
+    setDocuments(repo, 'preview.md')
+    repo.git('checkout', '-q', '-b', '007-x')
+    repo.write('specs/007-x/spec.md', SPEC)
+    repo.write('specs/007-x/preview.md', PREVIEW)
+    repo.write('specs/007-x/notes.md', 'not configured\n')
+    repo.write('specs/007-x/sub/preview.md', 'not top level\n')
+    repo.commit(['specs/007-x'], 'feature with a preview')
+    const oid = repo.git('rev-parse', 'HEAD:specs/007-x/preview.md').trim()
+    const extra = [{ name: 'preview.md', oid, size: PREVIEW.length }]
+
+    expect(branchFeature((await printManifest(repo)).manifest, '007-x', '007-x')?.extra).toEqual(extra)
+    expect((await repo.spechub(['report', '--quiet'])).status).toBe(0)
+    const row = await waitFor(async () => {
+      const f = await featureRow(cloneId, '007-x', '007-x')
+      return f?.extraDocs.length ? f : undefined
+    }, 'feature 007-x with its extra document')
+    expect(row.extraDocs).toEqual(extra)
+    await waitFor(
+      async () => ((await db.select().from(document).where(eq(document.oid, oid))).length ? true : undefined),
+      'uploaded preview.md',
+    )
+  })
+
+  it('reports a configured extra document of a default branch feature', async () => {
+    const { repo, project: p } = await connectedClone()
+    setDocuments(repo, 'preview.md')
+    repo.write('specs/001-full/preview.md', PREVIEW)
+    buildMain(repo)
+    await forgetTips(p.id)
+
+    const features = (await printDefault(repo)).features!
+    expect(features.find((f) => f.dir === '001-full')?.extra).toEqual([
+      { name: 'preview.md', oid: blob(repo, 'specs/001-full/preview.md'), size: PREVIEW.length },
+    ])
+    for (const f of features.filter((x) => x.dir !== '001-full')) expect(f).not.toHaveProperty('extra')
+  })
+
+  it('without the documents key no feature carries extra documents', async () => {
+    const { repo, project: p } = await connectedClone()
+    repo.write('specs/001-full/preview.md', PREVIEW)
+    buildMain(repo)
+    await forgetTips(p.id)
+    // hooks off: a background report would store the listing and drop it from the next manifest
+    quiet(repo, ['checkout', '-q', '-b', '008-y'])
+    repo.write('specs/008-y/spec.md', SPEC)
+    repo.write('specs/008-y/preview.md', PREVIEW)
+    quiet(repo, ['add', 'specs'])
+    quiet(repo, ['commit', '-q', '-m', 'feature with a preview'])
+
+    const { text, manifest } = await printManifest(repo)
+    expect(manifest.default.features).toHaveLength(3)
+    expect(branchFeature(manifest, '008-y', '008-y')).toBeDefined()
+    expect(text).not.toContain('"extra"')
+  })
+
+  it('ignores invalid and reserved names in the documents key', async () => {
+    const { repo } = await connectedClone()
+    setDocuments(repo, '../x.md spec.md preview.md')
+    repo.git('checkout', '-q', '-b', '009-z')
+    repo.write('specs/009-z/spec.md', SPEC)
+    repo.write('specs/009-z/preview.md', PREVIEW)
+    repo.write('specs/x.md', 'outside the feature folder\n')
+    repo.commit(['specs'], 'feature with a preview')
+
+    const extra = branchFeature((await printManifest(repo)).manifest, '009-z', '009-z')?.extra
+    expect(extra?.map((e) => e.name)).toEqual(['preview.md'])
   })
 })

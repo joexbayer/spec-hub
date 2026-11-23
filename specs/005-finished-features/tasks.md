@@ -120,7 +120,7 @@ Contracts: the "Review follow-ups" sections of contracts/reporter.md, web.md and
 
 ### Wave 7 (parallel, deps: T016,T018)
 
-- [ ] T019 [P] [deps: T018] @reasoning Reporter extra documents: read `documents` from the repo config (space-separated, ≤ 5, pattern, not spec/plan/tasks; invalid names ignored), report each listed file's blob in branch features (FEATURES_AWK) and default features (DEFAULT_AWK) as `extra`; add a commented `# documents: preview.md` line to `packages/extension/config-template.yml`. E2E: with `documents: preview.md`, a branch feature and a default feature report their preview, and it is uploaded and stored; without the key the manifest is unchanged.
+- [X] T019 [P] [deps: T018] @reasoning Reporter extra documents: read `documents` from the repo config (space-separated, ≤ 5, pattern, not spec/plan/tasks; invalid names ignored), report each listed file's blob in branch features (FEATURES_AWK) and default features (DEFAULT_AWK) as `extra`; add a commented `# documents: preview.md` line to `packages/extension/config-template.yml`. E2E: with `documents: preview.md`, a branch feature and a default feature report their preview, and it is uploaded and stored; without the key the manifest is unchanged.
 - [X] T020 [P] [deps: T018] @implementation Web and MCP extra documents: the feature page shows a tab per `shown.extra` document after spec, plan and tasks (`?tab=<name without .md>`, route validation accepts those names), rendered by the existing sanitized document component; MCP `feature` `document` accepts `spec|plan|tasks` or an extra name with or without `.md` (≤ 64 chars). Tests (web tabs; MCP returns preview text).
 
 ### Wave 8 (parallel, deps: T019,T020)

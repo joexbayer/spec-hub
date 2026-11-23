@@ -2,3 +2,6 @@
 hub_url:
 project:
 # remote: origin
+# Extra documents to show on the hub besides spec, plan and tasks (file names in the feature
+# folder, space-separated, at most 5).
+# documents: preview.md
