@@ -36,10 +36,14 @@ makes the whole team's pushed work visible. With it off, nothing changes.
 
 - Q: Where is the option set? → A: By a project admin in the hub's project settings, next to the
   default branch and numbering; every connected clone picks it up from its next report.
-- Q: What happens to remote branches with no change for 14+ days? → A: They are reported and show
-  in the collapsed stale group, by the same rule as all other work.
+- Q: What happens to remote branches with no change for 14+ days? → A: Superseded on 2026-11-23:
+  they are not reported (FR-008).
 
 ### Session 2026-11-23
+
+- Q: Report remote branches of any age, or only recent ones? → A: Only those with a commit in the
+  last 14 days. On the pilot, 304 old unmerged remote branches take 72 s to check every time main
+  moves; the recent ones (about 30) take about 12 s, and only after a fetch changes them.
 
 - Q: Long-lived deploy branches (the pilot's `chore/staging`, `chore/production`) seem to carry dozens
   of landed features. Ignore them by a project list? → A: No. They hold old copies of specs that
@@ -110,10 +114,11 @@ by another clone, check the board shows each feature once, in the right group.
 
 **Acceptance Scenarios**:
 
-1. **Given** a remote branch already contained in the default branch, **When** it is reported,
-   **Then** it does not make anything in flight (FR-012 of spec 001).
-2. **Given** a remote branch with no change for 14 days, **When** it is reported, **Then** its
-   feature is in the collapsed stale group, not in flight (FR-016 of spec 001).
+1. **Given** a remote branch whose documents are all versions the default branch already had
+   (merged, squash-merged, or a deploy branch built from copies), **When** a clone reports, **Then**
+   it makes nothing in flight (FR-014).
+2. **Given** a remote branch with no commit for 14 days, **When** a clone reports, **Then** it is
+   not reported (FR-008).
 3. **Given** Anders later connects his own clone, which has `025-mcp-governance` locally, **When**
    both his clone and Joe's report, **Then** feature 025 shows once, on Anders's branch as his own
    clone reports it (with his unpushed commits, if any), not twice.
@@ -181,9 +186,10 @@ by another clone, check the board shows each feature once, in the right group.
 - **FR-007**: Reporting remote branches MUST keep spec 001's guarantees: no output in normal
   operation, never block or fail a git operation, no noticeable added delay to one (FR-005 of
   spec 001).
-- **FR-008**: Remote branches MUST be reported whatever their age. One with no change for 14 days
-  shows in the collapsed stale group like any other work (FR-016 of spec 001); there is no second
-  staleness rule for remote branches.
+- **FR-008**: Only remote branches with a commit in the last 14 days MUST be reported. Older remote
+  branches would only show in the collapsed stale group, and checking them costs every connected
+  clone a minute of work each time the default branch moves (measured on the pilot: 304 branches,
+  72 s). Local branches keep spec 001's rules.
 
 **How it shows on the board**
 
