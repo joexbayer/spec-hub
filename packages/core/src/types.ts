@@ -44,6 +44,8 @@ export interface FeatureVersion {
   /** The branch's own last commit, whatever it touched. */
   branchTipAt: number
   carrierUserId: string
+  /** A copy of a teammate's branch seen on the shared remote by the reporting clone. */
+  remote: boolean
   author: { name: string; email: string } | null
   spec: DocFacts | null
   plan: DocFacts | null
@@ -89,7 +91,8 @@ export interface BranchRef {
   branch: string
   pushed: boolean
   lastChangeAt: number
-  carrierUserId: string
+  /** null: seen on the shared remote, never attributed to the reporting person. */
+  carrierUserId: string | null
 }
 
 export interface BoardEntry {

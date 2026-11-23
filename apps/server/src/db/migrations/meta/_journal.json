@@ -43,6 +43,13 @@
       "when": 1795439120099,
       "tag": "0005_finished_features",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795443785257,
+      "tag": "0006_share_pushed_branches",
+      "breakpoints": true
     }
   ]
 }

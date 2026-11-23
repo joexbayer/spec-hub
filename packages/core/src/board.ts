@@ -61,6 +61,19 @@ export const compareVersions = (
   byString(a.branch, b.branch) ||
   byString(a.carrierUserId, b.carrierUserId)
 
+// A remote copy yields to a local branch of the same name; of several remote copies of one name, the
+// newest stays (ties: smaller carrier).
+function dropRemoteCopies(group: FeatureVersion[]): FeatureVersion[] {
+  const localNames = new Set(group.filter((v) => !v.remote).map((v) => v.branch))
+  const remote = new Map<string, FeatureVersion>()
+  for (const v of group) {
+    if (!v.remote || localNames.has(v.branch)) continue
+    const kept = remote.get(v.branch)
+    if (!kept || compareVersions(v, kept) < 0) remote.set(v.branch, v)
+  }
+  return [...group.filter((v) => !v.remote), ...remote.values()]
+}
+
 // FR-011..FR-018: every version passed in is already in flight (filtered by the reporter).
 export function buildBoard(input: BoardInput): Board {
   const { versions, landed, members, numbering, now } = input
@@ -76,7 +89,8 @@ export function buildBoard(input: BoardInput): Board {
   }
 
   const entries: BoardEntry[] = []
-  for (const [dir, group] of byDir) {
+  for (const [dir, all] of byDir) {
+    const group = dropRemoteCopies(all)
     group.sort(compareVersions)
     const shown = group[0]
     if (!shown) continue
@@ -92,7 +106,7 @@ export function buildBoard(input: BoardInput): Board {
         branch: v.branch,
         pushed: v.pushed,
         lastChangeAt: v.lastChangeAt,
-        carrierUserId: v.carrierUserId,
+        carrierUserId: v.remote ? null : v.carrierUserId,
       })),
       lastChangeAt: shown.lastChangeAt,
       changesLandedFeature: landedDirs.has(dir),
