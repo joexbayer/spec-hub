@@ -132,7 +132,7 @@ test('the team panel shows who has not connected and who has not signed in yet',
   expect(screen.getByText("Added, hasn't signed in yet")).toBeTruthy()
 })
 
-test('right-clicking a row offers Copy link and Hide per branch', async () => {
+test('right-clicking a row offers Copy link and Mark as done', async () => {
   const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }))
   const writeText = vi.fn(async () => {})
   vi.stubGlobal('fetch', fetchMock)
@@ -145,9 +145,9 @@ test('right-clicking a row offers Copy link and Hide per branch', async () => {
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/p/demo/f/001-a`))
 
   fireEvent.contextMenu(row())
-  fireEvent.click(await screen.findByText('001-a', { selector: 'span.font-mono' }))
+  fireEvent.click(await screen.findByText('Mark as done'))
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
   const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-  expect(url).toBe('/api/projects/demo/hidden-branches')
-  expect(JSON.parse(String(init.body))).toEqual({ branch: '001-a' })
+  expect(url).toBe('/api/projects/demo/features/001-a/done')
+  expect(init.method).toBe('POST')
 })

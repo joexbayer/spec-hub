@@ -75,13 +75,13 @@ Open the hub's **Connect** page. It has every command filled in for your hub and
 
 More on the reporter and agents: [packages/extension/README.md](packages/extension/README.md).
 
-## Leftover branches
+## Done specs
 
-A branch kept after its work landed can still hold spec text the default branch never had, so its
-feature stays in flight. Right-click the feature's row on the board (or the branch on the work map,
-or use the branch's menu on the feature page) and hide that branch. The hide is for everyone and
-lasts until someone commits to the branch; the feature page lists hidden branches, who hid them,
-and **Show again**. The board row's menu also copies a link to the feature.
+Sometimes a branch kept after its work landed still holds spec text the default branch never had,
+so the feature stays in progress on the board. Right-click the feature's row and choose **Mark as
+done** (also a button on the feature page). It leaves the overview for everyone until someone
+writes new text in that spec's documents; the feature page shows who marked it and offers
+**Undo**. The same menu has **Copy link** to the feature.
 
 ## Landing lock
 

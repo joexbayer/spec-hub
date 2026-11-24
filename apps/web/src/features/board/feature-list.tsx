@@ -1,7 +1,7 @@
 import type { BoardEntry, PhaseKind } from '@spec-hub/core'
 import { Link } from '@tanstack/react-router'
 import { type ColumnDef, flexRender, tableFeatures, useTable } from '@tanstack/react-table'
-import { ChevronRight, EyeOff, GitBranch, Link as LinkIcon, Search, SearchX } from 'lucide-react'
+import { ChevronRight, CircleCheck, GitBranch, Link as LinkIcon, Search, SearchX } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { FeatureStateBadges, progressOf } from '@/components/feature-card'
@@ -15,7 +15,6 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
@@ -23,8 +22,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { copyLink, featureUrl } from '@/features/hide/copy-link'
-import { useHideBranch } from '@/features/hide/use-hide-branch'
+import { copyLink, featureUrl } from '@/features/done/copy-link'
+import { useMarkDone } from '@/features/done/use-mark-done'
 import { shortAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -127,7 +126,7 @@ export function FeatureTable({
   entries: BoardEntry[]
   blockedBy?: Map<string, string[]>
 }) {
-  const { hide } = useHideBranch(slug)
+  const { mark } = useMarkDone(slug)
   const table = useTable({
     features,
     columns: columns(slug, blockedBy),
@@ -174,17 +173,12 @@ export function FeatureTable({
                   <ContextMenuItem onSelect={() => copyLink(featureUrl(slug, row.original.dir))}>
                     <LinkIcon /> Copy link
                   </ContextMenuItem>
-                  {row.original.branches.length > 0 ? (
-                    <>
-                      <ContextMenuSeparator />
-                      <ContextMenuLabel>Hide a branch (for all its features)</ContextMenuLabel>
-                      {row.original.branches.map((b) => (
-                        <ContextMenuItem key={b.branch} onSelect={() => hide.mutate(b.branch)}>
-                          <EyeOff /> Hide <span className="font-mono">{b.branch}</span>
-                        </ContextMenuItem>
-                      ))}
-                    </>
-                  ) : null}
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onSelect={() => mark.mutate({ dir: row.original.dir, title: row.original.title })}
+                  >
+                    <CircleCheck /> Mark as done
+                  </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
             ))}

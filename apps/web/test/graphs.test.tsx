@@ -1,11 +1,11 @@
 import type { BoardEntry } from '@spec-hub/core'
 import { PHASE_ORDER } from '@spec-hub/core'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { Edge, Node } from '@xyflow/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, test } from 'vitest'
 import { CARD_H, CARD_W, dagreLayout, pipelineLayout } from '@/features/graphs/layout'
-import { BranchNode, PersonNode } from '@/features/graphs/nodes'
+import { PersonNode } from '@/features/graphs/nodes'
 
 const size = () => ({ width: CARD_W, height: CARD_H })
 
@@ -79,31 +79,3 @@ test('the work map labels the shared-remote person "Shared remote", not an avata
 })
 
 afterEach(cleanup)
-
-const branchProps = (onHide?: () => void) =>
-  ({
-    data: { branch: 'ana/leftover', pushed: true, lastChangeAt: 0, onHide },
-    selected: false,
-  }) as unknown as Parameters<typeof BranchNode>[0]
-
-test('a work-map branch opens a context menu whose item hides it', async () => {
-  const onHide = vi.fn()
-  render(
-    <ReactFlowProvider>
-      <BranchNode {...branchProps(onHide)} />
-    </ReactFlowProvider>,
-  )
-  fireEvent.contextMenu(screen.getByText('ana/leftover'))
-  fireEvent.click(await screen.findByText('Hide this branch'))
-  expect(onHide).toHaveBeenCalledTimes(1)
-})
-
-test('a branch without onHide has no context menu', () => {
-  render(
-    <ReactFlowProvider>
-      <BranchNode {...branchProps()} />
-    </ReactFlowProvider>,
-  )
-  fireEvent.contextMenu(screen.getByText('ana/leftover'))
-  expect(screen.queryByText('Hide this branch')).toBeNull()
-})

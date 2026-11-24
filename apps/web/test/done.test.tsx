@@ -6,8 +6,8 @@ import { afterEach, expect, test, vi } from 'vitest'
 const toast = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 
-import { copyLink, featureUrl } from '@/features/hide/copy-link'
-import { useHideBranch } from '@/features/hide/use-hide-branch'
+import { copyLink, featureUrl } from '@/features/done/copy-link'
+import { useMarkDone } from '@/features/done/use-mark-done'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -21,44 +21,43 @@ function setup(fetchMock: ReturnType<typeof vi.fn>) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   )
-  return { invalidate, ...renderHook(() => useHideBranch('my proj'), { wrapper }) }
+  return { invalidate, ...renderHook(() => useMarkDone('my proj'), { wrapper }) }
 }
 
-test('hide posts the branch, invalidates board and feature, and offers Undo', async () => {
-  const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }))
+test('mark posts to the feature done route, invalidates board and feature, and offers Undo', async () => {
+  const fetchMock = vi.fn(async () => new Response('{"dir":"006-x","versions":{}}', { status: 200 }))
   const { result, invalidate } = setup(fetchMock)
-  await act(() => result.current.hide.mutateAsync('old-x'))
+  await act(() => result.current.mark.mutateAsync({ dir: '006-x', title: 'X' }))
   const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-  expect(url).toBe('/api/projects/my%20proj/hidden-branches')
+  expect(url).toBe('/api/projects/my%20proj/features/006-x/done')
   expect(init.method).toBe('POST')
-  expect(JSON.parse(String(init.body))).toEqual({ branch: 'old-x' })
   expect(invalidate.mock.calls.map(([f]) => f?.queryKey)).toEqual([
     ['board', 'my proj'],
     ['feature', 'my proj'],
   ])
-  expect(toast.mock.calls[0]?.[0]).toBe('Hid old-x for everyone.')
+  expect(toast.mock.calls[0]?.[0]).toBe('Marked X as done.')
   // Undo issues the DELETE
   fetchMock.mockImplementation(async () => new Response(null, { status: 204 }))
   const opts = toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
   act(() => opts.action.onClick())
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
   const [delUrl, delInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit]
-  expect(delUrl).toBe('/api/projects/my%20proj/hidden-branches?branch=old-x')
+  expect(delUrl).toBe('/api/projects/my%20proj/features/006-x/done')
   expect(delInit.method).toBe('DELETE')
-  await waitFor(() => expect(toast).toHaveBeenCalledWith('old-x shows again.'))
+  await waitFor(() => expect(toast).toHaveBeenCalledWith('006-x is back on the board.'))
 })
 
-test('hide failure shows the hub error', async () => {
+test('mark failure shows the hub error', async () => {
   const fetchMock = vi.fn(
     async () =>
-      new Response(JSON.stringify({ error: 'not a member' }), {
-        status: 403,
+      new Response(JSON.stringify({ error: 'no such feature in flight' }), {
+        status: 404,
         headers: { 'Content-Type': 'application/json' },
       }),
   )
   const { result } = setup(fetchMock)
-  await act(() => result.current.hide.mutateAsync('x').catch(() => {}))
-  expect(toast.error).toHaveBeenCalledWith('not a member')
+  await act(() => result.current.mark.mutateAsync({ dir: 'x', title: 'X' }).catch(() => {}))
+  expect(toast.error).toHaveBeenCalledWith('no such feature in flight')
 })
 
 test('copyLink writes the url to the clipboard and toasts', async () => {

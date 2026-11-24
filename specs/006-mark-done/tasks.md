@@ -26,12 +26,12 @@ in parallel agents use their own `SPECHUB_TEST_DB`; don't run `pnpm check` while
 
 ## Phase 4: Web
 
-- [ ] T013 [deps: T012] [US1,US4] @implementation [ctx: apps/web/src/features/hide/*, apps/web/src/features/board/feature-list.tsx:120-200, apps/web/src/features/board/board-page.tsx:300-380, apps/web/src/features/graphs/nodes.tsx:160-215, apps/web/test/{hide,board,graphs}.test.tsx] Web: `apps/web/src/features/done/use-mark-done.ts` (`useMarkDone(slug)` → `{ mark, undo }`; mark takes `{ dir, title }`, toast `Marked <title> as done.` with Undo; invalidates `['board', slug]`, `['feature', slug]`) and move `copy-link.ts` there; delete `features/hide/`; board row menu = Copy link, separator, Mark as done (CircleCheck); remove the work-map branch menu (`onHide` in nodes.tsx and board-page.tsx). Tests updated (`done.test.tsx` replaces `hide.test.tsx`; board and graphs tests).
-- [ ] T014 [deps: T013] [US3] @implementation [ctx: apps/web/src/features/feature-detail/feature-page.tsx:180-300, apps/web/src/features/feature-detail/graph-panels.tsx:1-120, apps/web/test/feature-detail.test.tsx, apps/web/test/feature-graphs.test.ts] Feature page: remove the branch ⋯ menu and Hidden branches; header gets `Mark as done` (when `entry` is set) or the done line with Undo (contracts); fixtures use `done: null`. Tests: button marks, done line + Undo deletes, a marked-only feature renders.
+- [X] T013 [deps: T012] [US1,US4] @implementation [ctx: apps/web/src/features/hide/*, apps/web/src/features/board/feature-list.tsx:120-200, apps/web/src/features/board/board-page.tsx:300-380, apps/web/src/features/graphs/nodes.tsx:160-215, apps/web/test/{hide,board,graphs}.test.tsx] Web: `apps/web/src/features/done/use-mark-done.ts` (`useMarkDone(slug)` → `{ mark, undo }`; mark takes `{ dir, title }`, toast `Marked <title> as done.` with Undo; invalidates `['board', slug]`, `['feature', slug]`) and move `copy-link.ts` there; delete `features/hide/`; board row menu = Copy link, separator, Mark as done (CircleCheck); remove the work-map branch menu (`onHide` in nodes.tsx and board-page.tsx). Tests updated (`done.test.tsx` replaces `hide.test.tsx`; board and graphs tests).
+- [X] T014 [deps: T013] [US3] @implementation [ctx: apps/web/src/features/feature-detail/feature-page.tsx:180-300, apps/web/src/features/feature-detail/graph-panels.tsx:1-120, apps/web/test/feature-detail.test.tsx, apps/web/test/feature-graphs.test.ts] Feature page: remove the branch ⋯ menu and Hidden branches; header gets `Mark as done` (when `entry` is set) or the done line with Undo (contracts); fixtures use `done: null`. Tests: button marks, done line + Undo deletes, a marked-only feature renders.
 
 ## Phase 6: Polish
 
-- [ ] T015 [P] [deps: T014] @implementation Docs: README "Leftover branches" → "Done specs"; spec 001 web-api pointer to `specs/006-mark-done/contracts/interfaces.md`.
+- [X] T015 [P] [deps: T014] @implementation Docs: README "Leftover branches" → "Done specs"; spec 001 web-api pointer to `specs/006-mark-done/contracts/interfaces.md`.
 - [ ] T016 [deps: T015] @routine Run `pnpm check` with the machine quiet; re-run any failing test alone; report.
 
 ## Dependencies

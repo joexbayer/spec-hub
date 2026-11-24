@@ -101,7 +101,7 @@ describe('FeaturePage with a finished feature', () => {
       'fetch',
       vi.fn(async (url: string) => {
         const body = url.includes('/features/')
-          ? detail
+          ? { dir: '001-a', done: null, ...(detail as object) }
           : { inFlight: [], stale: [], recentlyLanded: [], landedDirs: [], members: [] }
         return new Response(JSON.stringify(body), {
           status: 200,
@@ -239,7 +239,7 @@ describe('FeaturePage with a finished feature', () => {
   })
 })
 
-describe('FeaturePage hide and show a branch', () => {
+describe('FeaturePage mark as done', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
@@ -254,7 +254,7 @@ describe('FeaturePage hide and show a branch', () => {
     plan: null,
     tasks: null,
   }
-  const hidden = [{ branch: 'old/y', hiddenBy: { githubLogin: 'bob', name: 'Bob' }, hiddenAt: Date.now() }]
+  const done = { by: { githubLogin: 'bob', name: 'Bob' }, at: Date.now() }
 
   function renderDetail(detail: unknown) {
     // the graph canvas observes its size; jsdom has no ResizeObserver
@@ -267,7 +267,7 @@ describe('FeaturePage hide and show a branch', () => {
       },
     )
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const body = url.includes('/hidden-branches')
+      const body = url.includes('/done')
         ? {}
         : url.includes('/features/')
           ? detail
@@ -298,44 +298,47 @@ describe('FeaturePage hide and show a branch', () => {
     return fetchMock
   }
 
-  it('hides a branch from its actions menu', async () => {
+  it('marks a feature done from the header', async () => {
     const fetchMock = renderDetail({
-      entry: null,
+      dir: '001-a',
+      entry: {
+        number: '001',
+        title: 'Alpha',
+        phase: { kind: 'spec' },
+        collisions: [],
+        owner: { kind: 'unknown' },
+      },
       landed: null,
-      versions: [version],
-      hidden: [],
-      shown: { branch: 'old-x', extra: [], docs: { spec: null, plan: null, tasks: null } },
-    })
-    const button = await screen.findByRole('button', { name: 'Branch actions for old-x' })
-    fireEvent.pointerDown(button, { button: 0, ctrlKey: false, pointerType: 'mouse' })
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide this branch' }))
-    await waitFor(() => {
-      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
-      expect(post?.[0]).toBe('/api/projects/demo/hidden-branches')
-      expect(JSON.parse(String(post?.[1]?.body))).toEqual({ branch: 'old-x' })
-    })
-  })
-
-  it('lists hidden branches and shows one again', async () => {
-    const fetchMock = renderDetail({
-      entry: null,
-      landed: null,
-      versions: [version],
-      hidden,
+      versions: [],
+      done: null,
       shown: null,
     })
-    expect(await screen.findByText('Hidden branches')).toBeTruthy()
-    expect(screen.getByText(/@bob/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Show again/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Mark as done/ }))
     await waitFor(() => {
-      const del = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
-      expect(del?.[0]).toBe('/api/projects/demo/hidden-branches?branch=old%2Fy')
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+      expect(post?.[0]).toBe('/api/projects/demo/features/001-a/done')
     })
   })
 
-  it('renders the page with only hidden branches', async () => {
-    renderDetail({ entry: null, landed: null, versions: [], hidden, shown: null })
-    expect(await screen.findByText('Hidden branches')).toBeTruthy()
-    expect(screen.queryByText('No branch carries this feature.')).toBeNull()
+  it('shows who marked it done and undoes it', async () => {
+    const fetchMock = renderDetail({
+      dir: '001-a',
+      entry: null,
+      landed: null,
+      versions: [version],
+      done,
+      shown: null,
+    })
+    expect(await screen.findByText(/Marked done by @bob/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+      expect(del?.[0]).toBe('/api/projects/demo/features/001-a/done')
+    })
+  })
+
+  it('renders the page for a marked feature with no branches', async () => {
+    renderDetail({ dir: '001-a', entry: null, landed: null, versions: [], done, shown: null })
+    expect(await screen.findByText(/Marked done by @bob/)).toBeTruthy()
   })
 })
