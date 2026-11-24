@@ -29,6 +29,9 @@ description: How to run, test and change Spec Hub locally — Homebrew Postgres,
   sets `SPEC_HUB_ADMINS` to it). A user in no project is *waiting*: `POST /api/tokens` is 403, so
   `addMember` first when a test creates tokens through the API.
 - `hookTimeout` is 30 s because `truncateAll` can be slow on a loaded machine.
+- Don't run `pnpm check` while agents run test suites: the reporter end-to-end tests (real git, 20 s
+  timeout) then time out in bulk (14 at once, 2026-11-24). Re-run
+  `test/reporter/reporter.e2e.test.ts` alone, then the whole check with the machine quiet.
 - Run your own database when another agent may be testing: `SPECHUB_TEST_DB=spechub_x pnpm --filter
   @spec-hub/server test`, then `dropdb spechub_x`.
 - `security_event` is append-only (a trigger raises on UPDATE/DELETE): tests cannot clear it, only
