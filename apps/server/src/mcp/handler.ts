@@ -108,7 +108,8 @@ const mcp = createMcpHandler(({ authInfo }) => {
             `ambiguous: ${matches.map((d) => oneLine(d)).join(', ')}; ask again with the directory name`,
           )
         }
-        const dir = matches[0]
+        // an id nothing on the board resolves to may still be a directory whose every copy is hidden
+        const dir = matches[0] ?? id
         const detail = dir ? await loadFeature(db, caller.projectId, dir, branch) : null
         if (!detail) return failure(`no feature ${oneLine(id)} in flight or finished`)
         return text(

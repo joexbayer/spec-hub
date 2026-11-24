@@ -183,6 +183,12 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
     }
   }
   if (entry?.changesLandedFeature) lines.push('Changes a landed feature')
+  for (const h of detail.hidden) {
+    const by = h.hiddenBy ? `@${oneLine(h.hiddenBy.githubLogin)}` : 'someone no longer on the hub'
+    lines.push(
+      `Hidden branch ${oneLine(h.branch)}: hidden by ${by}, ${age(h.hiddenAt, now)} (counts again on its next commit)`,
+    )
+  }
 
   const graph = buildDependencyGraph(board)
   const state = (d: string): string => {

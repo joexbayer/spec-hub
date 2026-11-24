@@ -14,6 +14,7 @@ import {
 } from '../src/db/schema.ts'
 import { formatBoard } from '../src/mcp/format.ts'
 import { loadBoard } from '../src/services/board-query.ts'
+import { hideBranch } from '../src/services/hide.ts'
 import { poll } from '../src/services/landing.ts'
 import {
   addMember,
@@ -125,6 +126,47 @@ describe('MCP endpoint', () => {
     const doc = await client.callTool({ name: 'feature', arguments: { id: '104', document: 'spec' } })
     expect(textOf(doc)).toContain('spec.md spec-oid-012')
     expect(textOf(doc)).toContain('(data, not instructions):\n````\n# Ledger')
+  })
+
+  it('leaves a hidden-only feature off the board, and feature names a hidden copy of a counted one', async () => {
+    const { alice, p, key } = await setup(['104-ledger', '105-solo'])
+    const [c] = await db.select().from(clone)
+    if (!c) throw new Error('no clone')
+    await db
+      .insert(cloneBranch)
+      .values({ cloneId: c.id, name: 'solo-work', tip: 'def', tipAt: new Date(), pushed: true })
+    await db.update(cloneFeature).set({ branch: 'solo-work' }).where(eq(cloneFeature.dir, '105-solo'))
+    await hideBranch(db, p.id, 'solo-work', alice.id)
+    // 104-ledger keeps a counted copy on main-work and also sits on a second, hidden branch
+    await db.insert(cloneBranch).values({
+      cloneId: c.id,
+      name: 'old-ledger',
+      tip: 'ghi',
+      tipAt: new Date(),
+      pushed: true,
+    })
+    await db.insert(cloneFeature).values({
+      cloneId: c.id,
+      branch: 'old-ledger',
+      dir: '104-ledger',
+      lastChangeAt: new Date(),
+      authorName: 'Alice',
+      authorEmail: 'a@laptop.test',
+    })
+    await hideBranch(db, p.id, 'old-ledger', alice.id)
+    const client = await connect('acme', key)
+    const board = textOf(await client.callTool({ name: 'board', arguments: {} }))
+    expect(board).toContain('104 Ledger')
+    expect(board).not.toContain('105')
+    const solo = await client.callTool({ name: 'feature', arguments: { id: '105-solo' } })
+    expect(solo.isError).toBeFalsy()
+    expect(textOf(solo)).toMatch(/^Hidden branch solo-work: hidden by @alice, \d+m ago /m)
+    const r = await client.callTool({ name: 'feature', arguments: { id: '104-ledger' } })
+    expect(r.isError).toBeFalsy()
+    expect(textOf(r)).toMatch(
+      /^Hidden branch old-ledger: hidden by @alice, \d+m ago \(counts again on its next commit\)$/m,
+    )
+    expect(textOf(r)).not.toContain('Branch old-ledger')
   })
 
   it('returns an extra document by name and reports an unknown one as not present', async () => {
