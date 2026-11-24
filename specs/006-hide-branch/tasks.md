@@ -21,8 +21,8 @@ stays generic; read `spec-hub-dev` for test commands; server tests in parallel a
 
 ### Wave 1 (parallel)
 
-- [ ] T001 [P] @implementation [ctx: apps/server/src/db/schema.ts:79-93, specs/006-hide-branch/data-model.md] DB: `branchHide` table (`branch_hide`: project_id uuid → project cascade, branch text, tip text, hidden_by text → user set null, hidden_at timestamptz default now(), PK (project_id, branch, tip)) in `apps/server/src/db/schema.ts`; generate migration `0007_branch_hide` with a one-line header comment like 0006.
-- [ ] T002 [P] @routine [ctx: .specify/memory/constitution.md:69-71, .specify/memory/constitution.md:200-220] Constitution: add to Art. 3.1 the exception "Exception (006): a member may hide a branch at the commits it is reported at; a hidden branch's report does not count until the branch has a new commit. A hide never sets phase, progress, owner or staleness."; bump to 1.2.0 with a changelog line dated 2026-11-24 and update **Last Amended**.
+- [X] T001 [P] @implementation [ctx: apps/server/src/db/schema.ts:79-93, specs/006-hide-branch/data-model.md] DB: `branchHide` table (`branch_hide`: project_id uuid → project cascade, branch text, tip text, hidden_by text → user set null, hidden_at timestamptz default now(), PK (project_id, branch, tip)) in `apps/server/src/db/schema.ts`; generate migration `0007_branch_hide` with a one-line header comment like 0006.
+- [X] T002 [P] @routine [ctx: .specify/memory/constitution.md:69-71, .specify/memory/constitution.md:200-220] Constitution: add to Art. 3.1 the exception "Exception (006): a member may hide a branch at the commits it is reported at; a hidden branch's report does not count until the branch has a new commit. A hide never sets phase, progress, owner or staleness."; bump to 1.2.0 with a changelog line dated 2026-11-24 and update **Last Amended**.
 
 ## Phase 3: US1/US2/US3 — hub
 

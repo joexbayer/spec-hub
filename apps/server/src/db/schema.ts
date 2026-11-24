@@ -92,6 +92,21 @@ export const cloneBranch = pgTable(
   (t) => [primaryKey({ columns: [t.cloneId, t.name] })],
 )
 
+// A member hid this branch at this tip (specs/006-hide-branch); a reported copy at a different tip counts as usual.
+export const branchHide = pgTable(
+  'branch_hide',
+  {
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    branch: text('branch').notNull(),
+    tip: text('tip').notNull(),
+    hiddenBy: text('hidden_by').references(() => user.id, { onDelete: 'set null' }),
+    hiddenAt: timestamp('hidden_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.branch, t.tip] })],
+)
+
 export const cloneFeature = pgTable(
   'clone_feature',
   {

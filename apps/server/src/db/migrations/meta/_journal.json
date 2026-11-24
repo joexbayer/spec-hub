@@ -50,6 +50,13 @@
       "when": 1795443785257,
       "tag": "0006_share_pushed_branches",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795512324670,
+      "tag": "0007_branch_hide",
+      "breakpoints": true
     }
   ]
 }
