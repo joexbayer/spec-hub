@@ -34,6 +34,7 @@ import { GraphCanvas } from '@/features/graphs/graph-canvas'
 import { dagreLayout, nodeSize, pipelineLayout } from '@/features/graphs/layout'
 import { EDGE_SWATCH, GraphLegend, NODE_SWATCH } from '@/features/graphs/legend'
 import { type FeatureNodeData, featureAriaLabel } from '@/features/graphs/nodes'
+import { useHideBranch } from '@/features/hide/use-hide-branch'
 import type { ApiError } from '@/lib/api'
 import { meQuery } from '@/lib/query'
 import { shortAgo } from '@/lib/time'
@@ -300,7 +301,11 @@ function PipelineView({
   )
 }
 
-function workMapElements(board: Board, lastReportAt: LastReportAt): { nodes: Node[]; edges: Edge[] } {
+function workMapElements(
+  board: Board,
+  lastReportAt: LastReportAt,
+  onHide: (branch: string) => void,
+): { nodes: Node[]; edges: Edge[] } {
   const graph = buildDependencyGraph(board)
   const map = buildWorkMap(board)
   const nodes: Node[] = []
@@ -325,7 +330,12 @@ function workMapElements(board: Board, lastReportAt: LastReportAt): { nodes: Nod
       type: 'branch',
       position: at,
       ariaLabel: `Branch ${b.branch}`,
-      data: { branch: b.branch, pushed: b.pushed, lastChangeAt: b.lastChangeAt },
+      data: {
+        branch: b.branch,
+        pushed: b.pushed,
+        lastChangeAt: b.lastChangeAt,
+        onHide: () => onHide(b.branch),
+      },
     })
   }
   for (const entry of map.features) {
@@ -358,7 +368,8 @@ function WorkMapView({
   const navigate = useNavigate()
   const [selected, setSelected] = useState<string | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
-  const base = useMemo(() => workMapElements(board, lastReportAt), [board, lastReportAt])
+  const { mutate: hide } = useHideBranch(slug).hide
+  const base = useMemo(() => workMapElements(board, lastReportAt, hide), [board, lastReportAt, hide])
   const near = useMemo(() => {
     if (!hovered) return null
     const ids = new Set([hovered])

@@ -4,10 +4,16 @@ import type { BoardEntry, LandedFeature, Owner } from '@spec-hub/core'
 import { phaseLabel, titleFromDir } from '@spec-hub/core'
 import { Handle, type Node, type NodeProps, Position } from '@xyflow/react'
 import { formatDistanceToNow } from 'date-fns'
-import { CheckCircle2, Cloud, CloudOff, GitBranch, Users } from 'lucide-react'
+import { CheckCircle2, Cloud, CloudOff, EyeOff, GitBranch, Users } from 'lucide-react'
 import { FeatureCard } from '@/components/feature-card'
 import { OwnerAvatar, ownerName } from '@/components/person-chip'
 import { PHASE_DOT } from '@/components/phase-badge'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { shortAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import type { PipelineColumn } from './layout'
@@ -159,8 +165,8 @@ export function PersonNode({
 export function BranchNode({
   data,
   selected,
-}: NodeProps<Node<{ branch: string; pushed: boolean; lastChangeAt: number }>>) {
-  return (
+}: NodeProps<Node<{ branch: string; pushed: boolean; lastChangeAt: number; onHide?: () => void }>>) {
+  const node = (
     <div
       className={cn(
         'flex h-16 w-[220px] flex-col justify-center gap-1 rounded-lg border bg-card px-3 shadow-xs',
@@ -189,6 +195,18 @@ export function BranchNode({
         <span className="truncate">{shortAgo(data.lastChangeAt)}</span>
       </div>
     </div>
+  )
+  const { onHide } = data
+  if (!onHide) return node
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{node}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onHide()}>
+          <EyeOff /> Hide this branch
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
