@@ -44,7 +44,7 @@ stays generic; read `spec-hub-dev` for test commands; server tests in parallel a
 ### Wave 3 (parallel, deps: T004,T006,T007,T008)
 
 - [X] T009 [P] @implementation Docs: spec 001 contract pointer to `specs/006-hide-branch/contracts/interfaces.md` (web-api); a short "Hiding a leftover branch" paragraph in `README.md` or `docs/` where the board is described (check which exists).
-- [ ] T010 [P] @routine Run `pnpm check`; re-run any failing test alone; report, fix nothing.
+- [X] T010 [P] @routine Run `pnpm check`; re-run any failing test alone; report, fix nothing.
 
 ## Dependencies
 

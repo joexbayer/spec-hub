@@ -204,6 +204,29 @@ describe('showing a branch again and access', () => {
     expect((await show(cookie, '')).status).toBe(422)
   })
 
+  it('refuses to hide the default branch', async () => {
+    const { b, p, cookie } = await setup()
+    await carry(p, b, { branch: 'main', dirs: ['001-old'] })
+    const res = await hide(cookie, 'main')
+    expect(res.status).toBe(400)
+    expect(await db.select().from(branchHide)).toEqual([])
+  })
+
+  it('a hide in one project leaves the same branch and tip in another project counted', async () => {
+    const { b, p, cookie } = await setup()
+    await carry(p, b, { branch: '001-old', dirs: ['001-old'], tip: 'T' })
+    const other = await createProject('other')
+    const carol = await createUser('carol')
+    await addMember(other, carol)
+    await carry(other, carol, { branch: '001-old', dirs: ['001-old'], tip: 'T' })
+    expect((await hide(cookie, '001-old')).status).toBe(200)
+    expect(await inFlightDirs(cookie)).toEqual([])
+    const { board } = await json(
+      request('/api/projects/other/board', { headers: { cookie: await sessionCookie(carol) } }),
+    )
+    expect(board.inFlight.map((e: { dir: string }) => e.dir)).toEqual(['001-old'])
+  })
+
   it('keeps one row per tip when a second member hides the same branch', async () => {
     const { a, b, p, cookie } = await setup()
     await carry(p, b, { branch: '001-old', dirs: ['001-old'], tip: 'T' })

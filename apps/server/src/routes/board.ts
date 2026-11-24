@@ -69,7 +69,11 @@ export const boardRoutes = new Hono<AppEnv>()
     ...guard,
     zv('json', z.object({ branch: branchName })),
     async (c) => {
-      const hidden = await hideBranch(db, c.var.project.id, c.req.valid('json').branch, c.var.userId)
+      const { branch } = c.req.valid('json')
+      // the default branch is where features land, never a leftover (spec 006 edge cases)
+      if (branch === c.var.project.defaultBranch)
+        return c.json({ error: 'the default branch cannot be hidden' }, 400)
+      const hidden = await hideBranch(db, c.var.project.id, branch, c.var.userId)
       return hidden ? c.json(hidden) : c.json({ error: 'no such branch' }, 404)
     },
   )

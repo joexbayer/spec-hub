@@ -9,6 +9,7 @@ Body `{ "branch": string }` — 1–255 characters, no control characters.
 - Any project member (`requireProjectRole()`); non-member 403, unknown project 404.
 - Inserts one `branch_hide` row per distinct tip the project's clones currently report for that
   name. No reported copy: `404 { "error": "no such branch" }`.
+- The project's default branch: `400 { "error": "the default branch cannot be hidden" }`.
 - `200 { "branch": string, "tips": number }`.
 
 ### `DELETE /api/projects/:slug/hidden-branches?branch=<name>`

@@ -70,9 +70,10 @@ apps/server/src/services/{board-query.ts, hide.ts}
 apps/server/src/routes/board.ts                      # hidden-branches routes
 apps/server/src/mcp/format.ts
 apps/web/src/components/ui/context-menu.tsx
-apps/web/src/features/hide/{use-hide-branch.ts, branch-menu.tsx}
+apps/web/src/features/hide/{use-hide-branch.ts, copy-link.ts}
 apps/web/src/features/board/{feature-list.tsx (row), board-page.tsx + graphs branch node (work map)}
-apps/web/src/features/feature-detail/{feature-page.tsx, graph-panels.tsx}
+apps/web/src/features/feature-detail/graph-panels.tsx
+apps/server/src/mcp/handler.ts                       # a hidden-only feature by directory name
 ```
 
 ## Complexity Tracking

@@ -120,15 +120,17 @@ and time; "Show again" restores it everywhere.
 - **A hide that no longer matches anything** (the branch moved or was deleted) has no effect and is
   not listed under Hidden branches.
 - **Hiding the last carrier of a feature that is not on the default branch**: the feature leaves the
-  in-flight views. Its page still opens (by link, from the MCP `feature` tool, or from Finished if it
-  landed) and shows the hidden branch with "Show again".
-- **The default branch** cannot be hidden; it is not a carrier.
+  in-flight views. Its page still opens (by link, from the MCP `feature` tool by its directory name,
+  or from Finished if it landed) and shows the hidden branch with "Show again".
+- **The default branch** cannot be hidden: the hub refuses it, even when a clone's local default
+  branch is ahead of the shared remote and so reported as a carrier.
 - **Branch list on the feature page**: the version picker does not offer a hidden branch; Hidden
   branches does.
 - **Landing queue** (spec 003): hiding a branch does not change the queue.
 - **Two members hide the same branch at the same time**: one hide results; either name is fine.
-- **Keyboard and touch**: right-click menus open with a long press or the menu key; the feature page
-  has a visible button per branch, so every hide can be made and undone without a mouse.
+- **Keyboard and touch**: right-click menus open with a long press, and the board row's with the
+  menu key; the feature page has a visible button per branch, so every hide can be made and undone
+  without a mouse.
 - **A branch that moves while someone is choosing to hide it**: the hide records the tips the hub has
   when the member confirms; a commit reported in the same second may be hidden with it and shows
   again on the branch's next commit.
@@ -140,7 +142,8 @@ and time; "Show again" restores it everywhere.
 - **FR-001**: Any member of a project MUST be able to hide a branch that carries a feature in that
   project: from a board row's right-click menu (which lists that feature's branches), from a branch
   in the work map (right-click), and from the feature page's branch list (a visible menu button per
-  branch). Right-click menus also open with a long press and the keyboard's menu key.
+  branch). Right-click menus also open with a long press; the board row's also with the keyboard's
+  menu key.
 - **FR-002**: A hide MUST apply to the branch name together with every tip the hub currently has for
   that name in the project, and to nothing else.
 - **FR-003**: While a reported copy of a branch has a hidden tip, that copy MUST NOT count anywhere:
