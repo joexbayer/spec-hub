@@ -118,3 +118,8 @@ description: How to run, test and change Spec Hub locally — Homebrew Postgres,
   nothing with `onlyRenderVisibleElements`.
 - Screenshots go in `.playwright-mcp/` (gitignored). Delete any admin-kit screenshots; they are
   licensed visuals.
+- `drizzle-kit generate` asks "create or rename?" when a migration drops one table and creates
+  another, and an agent's shell has no TTY. Run it from `apps/server` under a pseudo-terminal:
+  `(sleep 6; printf '\r'; sleep 4) | script -q /dev/null pnpm exec drizzle-kit generate` (Enter picks
+  create), then rename the file and fix its tag in `meta/_journal.json`. Never edit a migration that
+  already ran on a hub; add the next one.

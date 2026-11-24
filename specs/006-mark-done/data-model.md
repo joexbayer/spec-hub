@@ -24,7 +24,8 @@ export interface DoneMark {
   at: number                                          // ms, earliest matching mark
 }
 export interface FeatureDetail {
-  // … unchanged fields (minus `hidden`) …
+  dir: string            // the folder asked for (MCP names a feature with no counted copy)
+  // … unchanged fields …
   done: DoneMark | null   // set when the folder has marked copies and none that count
 }
 ```

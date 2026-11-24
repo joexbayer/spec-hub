@@ -6,19 +6,13 @@ import { requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
 import { clone, membership } from '../db/schema.ts'
 import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
-import { hideBranch, showBranch } from '../services/hide.ts'
+import { markDone, unmarkDone } from '../services/done.ts'
 import { zv } from '../validate.ts'
 
 const guard = [requireSession, requireProjectRole()] as const
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters in a directory name is the point
 const featureParam = z.object({ slug: z.string(), dir: z.string().regex(/^[^/\u0000-\u001f]{1,255}$/) })
 const featureQuery = z.object({ branch: z.string().min(1).max(255).optional() })
-const branchName = z
-  .string()
-  .min(1)
-  .max(255)
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters in a branch name is the point
-  .regex(/^[^\u0000-\u001f]+$/)
 
 export const boardRoutes = new Hono<AppEnv>()
   .get('/projects/:slug/board', ...guard, async (c) => {
@@ -64,25 +58,12 @@ export const boardRoutes = new Hono<AppEnv>()
       return c.json(feature)
     },
   )
-  .post(
-    '/projects/:slug/hidden-branches',
-    ...guard,
-    zv('json', z.object({ branch: branchName })),
-    async (c) => {
-      const { branch } = c.req.valid('json')
-      // the default branch is where features land, never a leftover (spec 006 edge cases)
-      if (branch === c.var.project.defaultBranch)
-        return c.json({ error: 'the default branch cannot be hidden' }, 400)
-      const hidden = await hideBranch(db, c.var.project.id, branch, c.var.userId)
-      return hidden ? c.json(hidden) : c.json({ error: 'no such branch' }, 404)
-    },
-  )
-  .delete(
-    '/projects/:slug/hidden-branches',
-    ...guard,
-    zv('query', z.object({ branch: branchName })),
-    async (c) => {
-      await showBranch(db, c.var.project.id, c.req.valid('query').branch)
-      return c.body(null, 204)
-    },
-  )
+  .post('/projects/:slug/features/:dir/done', ...guard, zv('param', featureParam), async (c) => {
+    const { dir } = c.req.valid('param')
+    const marked = await markDone(db, c.var.project.id, dir, c.var.userId)
+    return marked ? c.json(marked) : c.json({ error: 'no such feature in flight' }, 404)
+  })
+  .delete('/projects/:slug/features/:dir/done', ...guard, zv('param', featureParam), async (c) => {
+    await unmarkDone(db, c.var.project.id, c.req.valid('param').dir)
+    return c.body(null, 204)
+  })
