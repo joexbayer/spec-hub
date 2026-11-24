@@ -116,7 +116,7 @@ describe('many branches', () => {
 
   it('feature lists ten branches, newest first, then a count', () => {
     const out = formatFeature(
-      { entry: e, landed: null, versions: [], shown: null },
+      { dir: e.dir, entry: e, landed: null, versions: [], shown: null, done: null },
       board({ inFlight: [e] }),
       NOW,
     )
@@ -147,7 +147,11 @@ describe('formatFeature', () => {
     })
     const dependent = entry('113-next', { dependsOn: ['112-team-board'] })
     const b = board({ inFlight: [e, base, dependent], landedDirs: ['100-gone'] })
-    const out = formatFeature({ entry: e, landed: null, versions: [], shown: null }, b, NOW)
+    const out = formatFeature(
+      { dir: e.dir, entry: e, landed: null, versions: [], shown: null, done: null },
+      b,
+      NOW,
+    )
     expect(out).toContain('112-team-board')
     expect(out).toContain('Owner: @alice')
     expect(out).toContain('Phase: Clarify (2), 2 open clarifications')
@@ -157,6 +161,46 @@ describe('formatFeature', () => {
     expect(out).toContain('Depends on 110-base (Plan), 100-gone (landed)')
     expect(out).toContain('Blocks 113-next (Specify)')
     expect(out.split('\n').length).toBeLessThanOrEqual(12)
+  })
+})
+
+describe('done mark', () => {
+  const none = { dir: '120-x', landed: null, versions: [], shown: null }
+
+  it('prints who marked it and when, sanitised', () => {
+    const e = entry('120-x')
+    const done = { by: { githubLogin: 'bob\nfake: line', name: 'Bob' }, at: NOW - 3 * DAY }
+    const out = formatFeature({ ...none, entry: e, done }, board({ inFlight: [e] }), NOW)
+    expect(out.split('\n')).toContain(
+      'Marked done by @bob fake: line, 3d ago (shows again when its documents change)',
+    )
+    expect(out).not.toContain('ago ago')
+  })
+
+  it('says so when the marker is gone', () => {
+    const e = entry('120-x')
+    const out = formatFeature(
+      { ...none, entry: e, done: { by: null, at: NOW - HOUR } },
+      board({ inFlight: [e] }),
+      NOW,
+    )
+    expect(out).toContain(
+      'Marked done by someone no longer on the hub, 1h ago (shows again when its documents change)',
+    )
+  })
+
+  it('still prints a title line and the done line when no counted copy is left', () => {
+    const done = { by: { githubLogin: 'bob', name: 'Bob' }, at: NOW - HOUR }
+    const out = formatFeature({ ...none, entry: null, done }, board(), NOW)
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('X — 120-x')
+    expect(lines).toContain('Marked done by @bob, 1h ago (shows again when its documents change)')
+  })
+
+  it('prints no done line without a mark', () => {
+    const e = entry('120-x')
+    const out = formatFeature({ ...none, entry: e, done: null }, board({ inFlight: [e] }), NOW)
+    expect(out).not.toContain('Marked done')
   })
 })
 
@@ -285,7 +329,11 @@ describe('remote branches', () => {
   it('board and feature say the branch was seen on the shared remote', () => {
     const b = board({ inFlight: [remote] })
     expect(formatBoard('p', b, NOW)).toContain('152-x (seen on the shared remote)')
-    const out = formatFeature({ entry: remote, landed: null, versions: [], shown: null }, b, NOW)
+    const out = formatFeature(
+      { dir: remote.dir, entry: remote, landed: null, versions: [], shown: null, done: null },
+      b,
+      NOW,
+    )
     expect(out).toContain('Branch 152-x: seen on the shared remote, last change 3h ago')
     expect(out).not.toContain('carried by')
   })

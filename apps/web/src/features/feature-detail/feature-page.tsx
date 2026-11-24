@@ -7,6 +7,7 @@ import { formatDistanceToNow } from 'date-fns'
 import {
   AlertTriangle,
   CheckCircle2,
+  CircleCheck,
   Clock,
   CloudOff,
   FileQuestion,
@@ -31,6 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useBoard } from '@/features/board/board-query'
+import { useMarkDone } from '@/features/done/use-mark-done'
 import { ApiError, json } from '@/lib/api'
 import { shortAgo } from '@/lib/time'
 import { DocumentTabs, type FeatureTab } from './document-tabs'
@@ -145,6 +147,7 @@ export function FeaturePage({
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   })
   const members = useBoard(slug).board.data?.members ?? []
+  const { mark, undo } = useMarkDone(slug)
 
   if (isPending) return <LoadingSkeleton />
   if (error) {
@@ -177,7 +180,7 @@ export function FeaturePage({
     )
   }
 
-  const { entry, landed, versions, shown } = data
+  const { entry, landed, versions, shown, done } = data
   const number = entry?.number ?? landed?.finished.number ?? dir.split('-')[0]
   const title = entry?.title ?? landed?.finished.title ?? titleFromDir(dir)
   const isLanded = landed !== null && entry === null
@@ -312,6 +315,23 @@ export function FeaturePage({
               ) : null}
             </TooltipProvider>
           </div>
+          {done ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span>
+                {done.by
+                  ? `Marked done by @${done.by.githubLogin}`
+                  : 'Marked done by someone no longer on the hub'}
+                , {shortAgo(done.at)}. It shows again when its documents change.
+              </span>
+              <Button variant="outline" size="sm" onClick={() => undo.mutate(dir)}>
+                Undo
+              </Button>
+            </div>
+          ) : entry ? (
+            <Button variant="outline" size="sm" onClick={() => mark.mutate({ dir, title })}>
+              <CircleCheck aria-hidden /> Mark as done
+            </Button>
+          ) : null}
         </header>
 
         <StatStrip

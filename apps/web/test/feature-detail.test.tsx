@@ -1,9 +1,11 @@
 import type { ShownDoc, ShownVersion } from '@spec-hub/server/board-query'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocumentTabs } from '@/features/feature-detail/document-tabs'
 import { FeaturePage } from '@/features/feature-detail/feature-page'
+
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a>,
@@ -99,7 +101,7 @@ describe('FeaturePage with a finished feature', () => {
       'fetch',
       vi.fn(async (url: string) => {
         const body = url.includes('/features/')
-          ? detail
+          ? { dir: '001-a', done: null, ...(detail as object) }
           : { inFlight: [], stale: [], recentlyLanded: [], landedDirs: [], members: [] }
         return new Response(JSON.stringify(body), {
           status: 200,
@@ -234,5 +236,109 @@ describe('FeaturePage with a finished feature', () => {
     await screen.findByText('Finished title')
     // one choice means a plain chip, not a select
     expect(screen.queryByRole('combobox', { name: 'Branch' })).toBeNull()
+  })
+})
+
+describe('FeaturePage mark as done', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  const version = {
+    branch: 'old-x',
+    carrierUserId: 'u1',
+    pushed: true,
+    lastChangeAt: 5,
+    spec: null,
+    plan: null,
+    tasks: null,
+  }
+  const done = { by: { githubLogin: 'bob', name: 'Bob' }, at: Date.now() }
+
+  function renderDetail(detail: unknown) {
+    // the graph canvas observes its size; jsdom has no ResizeObserver
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = url.includes('/done')
+        ? {}
+        : url.includes('/features/')
+          ? detail
+          : {
+              board: { inFlight: [], stale: [], recentlyLanded: [], landedDirs: [], members: [] },
+              lastReportAt: {},
+              pending: [],
+              defaultBranch: 'main',
+            }
+      return new Response(init?.method === 'DELETE' ? null : JSON.stringify(body), {
+        status: init?.method === 'DELETE' ? 204 : 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <FeaturePage
+          slug="demo"
+          dir="001-a"
+          tab="versions"
+          branch={undefined}
+          onTabChange={() => {}}
+          onBranchChange={() => {}}
+        />
+      </QueryClientProvider>,
+    )
+    return fetchMock
+  }
+
+  it('marks a feature done from the header', async () => {
+    const fetchMock = renderDetail({
+      dir: '001-a',
+      entry: {
+        number: '001',
+        title: 'Alpha',
+        phase: { kind: 'spec' },
+        collisions: [],
+        owner: { kind: 'unknown' },
+      },
+      landed: null,
+      versions: [],
+      done: null,
+      shown: null,
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /Mark as done/ }))
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+      expect(post?.[0]).toBe('/api/projects/demo/features/001-a/done')
+    })
+  })
+
+  it('shows who marked it done and undoes it', async () => {
+    const fetchMock = renderDetail({
+      dir: '001-a',
+      entry: null,
+      landed: null,
+      versions: [version],
+      done,
+      shown: null,
+    })
+    expect(await screen.findByText(/Marked done by @bob/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+      expect(del?.[0]).toBe('/api/projects/demo/features/001-a/done')
+    })
+  })
+
+  it('renders the page for a marked feature with no branches', async () => {
+    renderDetail({ dir: '001-a', entry: null, landed: null, versions: [], done, shown: null })
+    expect(await screen.findByText(/Marked done by @bob/)).toBeTruthy()
   })
 })

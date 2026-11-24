@@ -6,6 +6,7 @@ import { requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
 import { clone, membership } from '../db/schema.ts'
 import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
+import { markDone, unmarkDone } from '../services/done.ts'
 import { zv } from '../validate.ts'
 
 const guard = [requireSession, requireProjectRole()] as const
@@ -57,3 +58,12 @@ export const boardRoutes = new Hono<AppEnv>()
       return c.json(feature)
     },
   )
+  .post('/projects/:slug/features/:dir/done', ...guard, zv('param', featureParam), async (c) => {
+    const { dir } = c.req.valid('param')
+    const marked = await markDone(db, c.var.project.id, dir, c.var.userId)
+    return marked ? c.json(marked) : c.json({ error: 'no such feature in flight' }, 404)
+  })
+  .delete('/projects/:slug/features/:dir/done', ...guard, zv('param', featureParam), async (c) => {
+    await unmarkDone(db, c.var.project.id, c.req.valid('param').dir)
+    return c.body(null, 204)
+  })

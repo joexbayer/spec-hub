@@ -36,10 +36,12 @@ test('versions: two carriers with one branch each', () => {
     tasks: null,
   })
   const detail: FeatureDetail = {
+    dir: '001-a',
     entry: entry('001-a'),
     landed: null,
     versions: [v('x', 'u1'), v('y', 'u2')],
     shown: null,
+    done: null,
   }
   const { nodes, edges } = buildVersionElements(detail, board([]))
   const count = (t: string) => nodes.filter((n) => n.type === t).length

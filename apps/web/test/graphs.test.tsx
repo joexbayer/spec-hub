@@ -1,9 +1,9 @@
 import type { BoardEntry } from '@spec-hub/core'
 import { PHASE_ORDER } from '@spec-hub/core'
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { Edge, Node } from '@xyflow/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test } from 'vitest'
 import { CARD_H, CARD_W, dagreLayout, pipelineLayout } from '@/features/graphs/layout'
 import { PersonNode } from '@/features/graphs/nodes'
 
@@ -77,3 +77,5 @@ test('the work map labels the shared-remote person "Shared remote", not an avata
   expect(screen.getByText('Shared remote')).toBeTruthy()
   expect(screen.queryByText('unknown')).toBeNull()
 })
+
+afterEach(cleanup)

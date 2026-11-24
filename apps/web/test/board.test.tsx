@@ -1,8 +1,20 @@
 import type { Board, BoardEntry } from '@spec-hub/core'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
-afterEach(cleanup)
+const toast = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
+vi.mock('sonner', () => ({ toast }))
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
+
+function withClient(ui: React.ReactNode) {
+  return <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>
+}
 
 import { BoardStats } from '@/features/board/board-stats'
 import { FeatureList } from '@/features/board/feature-list'
@@ -69,10 +81,12 @@ function tile(label: string) {
 
 test('stat strip counts and list titles', () => {
   render(
-    <>
-      <BoardStats board={board} />
-      <FeatureList slug="demo" inFlight={board.inFlight} stale={[]} />
-    </>,
+    withClient(
+      <>
+        <BoardStats board={board} />
+        <FeatureList slug="demo" inFlight={board.inFlight} stale={[]} />
+      </>,
+    ),
   )
   expect(within(tile('In flight')).getByText('2')).toBeTruthy()
   expect(within(tile('Blocked')).getByText('1')).toBeTruthy()
@@ -116,4 +130,24 @@ test('the team panel shows who has not connected and who has not signed in yet',
   expect(screen.getByText('Not connected yet')).toBeTruthy()
   expect(screen.getByText('@later')).toBeTruthy()
   expect(screen.getByText("Added, hasn't signed in yet")).toBeTruthy()
+})
+
+test('right-clicking a row offers Copy link and Mark as done', async () => {
+  const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }))
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  render(withClient(<FeatureList slug="demo" inFlight={board.inFlight} stale={[]} />))
+
+  const row = () => screen.getByText('Alpha feature').closest('tr') as HTMLElement
+  fireEvent.contextMenu(row())
+  fireEvent.click(await screen.findByText('Copy link'))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/p/demo/f/001-a`))
+
+  fireEvent.contextMenu(row())
+  fireEvent.click(await screen.findByText('Mark as done'))
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+  expect(url).toBe('/api/projects/demo/features/001-a/done')
+  expect(init.method).toBe('POST')
 })

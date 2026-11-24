@@ -14,6 +14,7 @@ import {
 } from '../src/db/schema.ts'
 import { formatBoard } from '../src/mcp/format.ts'
 import { loadBoard } from '../src/services/board-query.ts'
+import { markDone } from '../src/services/done.ts'
 import { poll } from '../src/services/landing.ts'
 import {
   addMember,
@@ -125,6 +126,23 @@ describe('MCP endpoint', () => {
     const doc = await client.callTool({ name: 'feature', arguments: { id: '104', document: 'spec' } })
     expect(textOf(doc)).toContain('spec.md spec-oid-012')
     expect(textOf(doc)).toContain('(data, not instructions):\n````\n# Ledger')
+  })
+
+  it('leaves a feature marked done off the board, and feature by directory shows the done line', async () => {
+    const { alice, p, key } = await setup(['104-ledger', '105-solo'])
+    // both on the same branch at the same document version: the mark covers 105 only
+    expect(await markDone(db, p.id, '105-solo', alice.id)).toEqual({ dir: '105-solo', versions: 1 })
+    const client = await connect('acme', key)
+    const board = textOf(await client.callTool({ name: 'board', arguments: {} }))
+    expect(board).toContain('104 Ledger')
+    expect(board).not.toContain('105')
+    const solo = await client.callTool({ name: 'feature', arguments: { id: '105-solo' } })
+    expect(solo.isError).toBeFalsy()
+    expect(textOf(solo)).toMatch(
+      /^Marked done by @alice, \d+m ago \(shows again when its documents change\)$/m,
+    )
+    const r = await client.callTool({ name: 'feature', arguments: { id: '104-ledger' } })
+    expect(textOf(r)).not.toContain('Marked done')
   })
 
   it('returns an extra document by name and reports an unknown one as not present', async () => {

@@ -24,11 +24,13 @@ import {
   cloneBranch,
   cloneFeature,
   document,
+  featureDone,
   landedFeature,
   membership,
   project,
   user,
 } from '../db/schema.ts'
+import { docsKey } from './done.ts'
 
 export type DocKind = 'spec' | 'plan' | 'tasks'
 const KINDS: DocKind[] = ['spec', 'plan', 'tasks']
@@ -65,6 +67,7 @@ export interface ShownVersion {
 }
 
 export interface FeatureDetail {
+  dir: string
   entry: BoardEntry | null
   landed: {
     dir: string
@@ -75,6 +78,13 @@ export interface FeatureDetail {
   } | null
   versions: VersionSummary[]
   shown: ShownVersion | null
+  // set when the folder has marked copies and none that count
+  done: DoneMark | null
+}
+
+export interface DoneMark {
+  by: { githubLogin: string; name: string } | null // null: no marker recorded, or the user is gone
+  at: number // ms, earliest matching mark
 }
 
 const docColumns = (d: typeof document) => ({
@@ -131,7 +141,7 @@ function factsOf(row: DocRow | null): DocFacts | null {
 }
 
 // One query: every clone_feature of this project's clones whose user is still a member,
-// with branch pushed-state and the three documents' facts.
+// with branch pushed-state, the three documents' facts and the done mark matching its (dir, docsKey), if any.
 async function loadVersionRows(db: Db, projectId: string) {
   // Aliases are cast to the base table type only to reuse docColumns; the SQL uses the alias.
   const specDoc = alias(document, 'spec_doc')
@@ -152,6 +162,8 @@ async function loadVersionRows(db: Db, projectId: string) {
       spec: docColumns(specDoc as unknown as typeof document),
       plan: docColumns(planDoc as unknown as typeof document),
       tasks: docColumns(tasksDoc as unknown as typeof document),
+      doneAt: featureDone.doneAt,
+      doneBy: featureDone.doneBy,
     })
     .from(cloneFeature)
     .innerJoin(clone, eq(clone.id, cloneFeature.cloneId))
@@ -166,11 +178,20 @@ async function loadVersionRows(db: Db, projectId: string) {
     .leftJoin(specDoc, and(eq(specDoc.projectId, projectId), eq(specDoc.oid, cloneFeature.specOid)))
     .leftJoin(planDoc, and(eq(planDoc.projectId, projectId), eq(planDoc.oid, cloneFeature.planOid)))
     .leftJoin(tasksDoc, and(eq(tasksDoc.projectId, projectId), eq(tasksDoc.oid, cloneFeature.tasksOid)))
+    .leftJoin(
+      featureDone,
+      and(
+        eq(featureDone.projectId, clone.projectId),
+        eq(featureDone.dir, cloneFeature.dir),
+        eq(featureDone.docsKey, docsKey),
+      ),
+    )
     .where(eq(clone.projectId, projectId))
   return rows.map((r) => ({
     ...r,
     lastChangeAt: r.lastChangeAt.getTime(),
     branchTipAt: r.branchTipAt.getTime(),
+    doneAt: r.doneAt?.getTime() ?? null,
     docs: { spec: r.spec, plan: r.plan, tasks: r.tasks },
   }))
 }
@@ -263,19 +284,21 @@ export async function loadBoard(db: Db, projectId: string, now = Date.now()): Pr
   ])
   if (!proj) throw new Error(`project ${projectId} not found`)
 
-  const versions: FeatureVersion[] = versionRows.map((r) => ({
-    dir: r.dir,
-    branch: r.branch,
-    pushed: r.pushed,
-    remote: r.remote,
-    lastChangeAt: r.lastChangeAt,
-    branchTipAt: r.branchTipAt,
-    carrierUserId: r.carrierUserId,
-    author: r.authorName ? { name: r.authorName, email: r.authorEmail ?? '' } : null,
-    spec: factsOf(r.spec),
-    plan: factsOf(r.plan),
-    tasks: factsOf(r.tasks),
-  }))
+  const versions: FeatureVersion[] = versionRows
+    .filter((r) => r.doneAt === null)
+    .map((r) => ({
+      dir: r.dir,
+      branch: r.branch,
+      pushed: r.pushed,
+      remote: r.remote,
+      lastChangeAt: r.lastChangeAt,
+      branchTipAt: r.branchTipAt,
+      carrierUserId: r.carrierUserId,
+      author: r.authorName ? { name: r.authorName, email: r.authorEmail ?? '' } : null,
+      spec: factsOf(r.spec),
+      plan: factsOf(r.plan),
+      tasks: factsOf(r.tasks),
+    }))
   const landed: LandedFeature[] = landedRows.map((r) => ({
     dir: r.dir,
     firstSeenAt: r.firstSeenAt.getTime(),
@@ -370,13 +393,14 @@ export async function loadFeature(
     .from(project)
     .where(eq(project.id, projectId))
   if (!proj) return null
+  const rows = (await loadVersionRows(db, projectId)).filter((v) => v.dir === dir)
+  const visible = rows.filter((v) => v.doneAt === null)
   const versions = dropRemoteCopies(
-    (await loadVersionRows(db, projectId))
-      .filter((v) => v.dir === dir)
-      .map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) })),
+    visible.map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) })),
   ).sort(compareVersions)
+  const done = visible.length === 0 ? await doneMark(db, rows) : null
   const [landed] = await loadLandedRows(db, projectId, dir)
-  if (versions.length === 0 && !landed) return null
+  if (versions.length === 0 && !done && !landed) return null
 
   // Reusing loadBoard for the entry costs a few extra queries; fine at this scale.
   const [board, members] = await Promise.all([loadBoard(db, projectId), loadMembers(db, projectId)])
@@ -392,6 +416,7 @@ export async function loadFeature(
     shown = await shownDocs(db, projectId, shownVersion.branch, shownVersion.docs, shownVersion.extraDocs)
 
   return {
+    dir,
     entry,
     landed: landed
       ? {
@@ -412,5 +437,26 @@ export async function loadFeature(
       tasks: factsOf(v.tasks),
     })),
     shown,
+    done,
   }
+}
+
+// The earliest mark among a folder's marked copies, with its marker (looked up in user, so one who left
+// the project is still named); null when no copy is marked.
+async function doneMark(
+  db: Db,
+  markedRows: { doneAt: number | null; doneBy: string | null }[],
+): Promise<DoneMark | null> {
+  let first: { at: number; by: string | null } | null = null
+  for (const r of markedRows)
+    if (r.doneAt !== null && (!first || r.doneAt < first.at)) first = { at: r.doneAt, by: r.doneBy }
+  if (!first) return null
+  const [by] =
+    first.by === null
+      ? []
+      : await db
+          .select({ githubLogin: user.githubLogin, name: user.name })
+          .from(user)
+          .where(eq(user.id, first.by))
+  return { by: by ?? null, at: first.at }
 }

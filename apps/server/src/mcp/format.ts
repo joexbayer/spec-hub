@@ -136,7 +136,7 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
   const { entry, landed } = detail
   // the finished version was asked for: describe it, and only note that the feature is in flight too
   const finishedShown = landed !== null && detail.shown?.branch === landed.branch
-  const dir = entry?.dir ?? landed?.dir ?? ''
+  const dir = detail.dir
   const title =
     (finishedShown ? landed.finished.title : entry?.title) ?? landed?.finished.title ?? titleFromDir(dir)
   const lines = [`${oneLine(title, 80)} — ${oneLine(dir)}`]
@@ -183,6 +183,10 @@ export function formatFeature(detail: FeatureDetail, board: Board, now = Date.no
     }
   }
   if (entry?.changesLandedFeature) lines.push('Changes a landed feature')
+  if (detail.done) {
+    const by = detail.done.by ? `@${oneLine(detail.done.by.githubLogin)}` : 'someone no longer on the hub'
+    lines.push(`Marked done by ${by}, ${age(detail.done.at, now)} (shows again when its documents change)`)
+  }
 
   const graph = buildDependencyGraph(board)
   const state = (d: string): string => {

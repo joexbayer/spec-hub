@@ -7,6 +7,8 @@ Spec 005 adds `GET /api/projects/:slug/finished` and the default-branch version 
 
 Spec 004 adds `sharePushedBranches`, the branch `remote` flag, the content-based carry check and nullable carriers: see [004's interfaces](../../004-pushed-branch-sharing/contracts/interfaces.md).
 
+Spec 006 adds `POST`/`DELETE /api/projects/:slug/features/:dir/done` and `dir`/`done` on `GET /api/projects/:slug/features/:dir`: see [006's interfaces](../../006-mark-done/contracts/interfaces.md).
+
 - **Auth**: Better Auth session cookie.
 - **Mutations**: also require a same-origin `Origin` header (Hono `csrf()`).
 - **Validation**: every body and parameter is validated with zod.

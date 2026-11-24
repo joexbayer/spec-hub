@@ -92,6 +92,22 @@ export const cloneBranch = pgTable(
   (t) => [primaryKey({ columns: [t.cloneId, t.name] })],
 )
 
+// A member marked this feature done at this document version (specs/006-mark-done); a reported copy
+// of the folder with another version counts as usual. docs_key is done.ts's docsKey.
+export const featureDone = pgTable(
+  'feature_done',
+  {
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    dir: text('dir').notNull(),
+    docsKey: text('docs_key').notNull(),
+    doneBy: text('done_by').references(() => user.id, { onDelete: 'set null' }),
+    doneAt: timestamp('done_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.dir, t.docsKey] })],
+)
+
 export const cloneFeature = pgTable(
   'clone_feature',
   {

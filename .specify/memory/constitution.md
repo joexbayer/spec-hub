@@ -67,7 +67,9 @@ The tool fails the moment people mute it. This article is the product's main con
 style preference.
 
 3.1 Nobody updates status by hand. Phase, progress, owner and staleness are inferred from what the
-repo and its clients already report. `[review]`
+repo and its clients already report. Exception (006): a member may mark a feature done at the
+document versions it is reported at; a marked copy does not count until its documents get new text.
+A mark never sets phase, progress, owner or staleness. `[review]`
 
 3.2 Immediate messages go out only when someone must act: they are asked to review, a change is
 requested or an objection is raised on their feature, or their feature is unblocked. Everything
@@ -215,5 +217,6 @@ never cut as simplification. `[review]`
   only. Raised by the 001 plan.
 - 1.1.1 — 2026-10-26 — Art. 3.6 and 5.3 promoted from `[review]` to `[ci]`, naming their test
   commands (001, T056).
+- 1.2.0 — 2026-11-24 — Art. 3.1: a member may mark a feature done at its reported document versions (006).
 
-**Version**: 1.1.1 | **Ratified**: 2026-10-26 | **Last Amended**: 2026-10-26
+**Version**: 1.2.0 | **Ratified**: 2026-10-26 | **Last Amended**: 2026-11-24
