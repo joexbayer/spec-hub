@@ -40,6 +40,7 @@ test('versions: two carriers with one branch each', () => {
     landed: null,
     versions: [v('x', 'u1'), v('y', 'u2')],
     shown: null,
+    hidden: [],
   }
   const { nodes, edges } = buildVersionElements(detail, board([]))
   const count = (t: string) => nodes.filter((n) => n.type === t).length

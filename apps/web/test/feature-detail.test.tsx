@@ -1,9 +1,11 @@
 import type { ShownDoc, ShownVersion } from '@spec-hub/server/board-query'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocumentTabs } from '@/features/feature-detail/document-tabs'
 import { FeaturePage } from '@/features/feature-detail/feature-page'
+
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a>,
@@ -234,5 +236,106 @@ describe('FeaturePage with a finished feature', () => {
     await screen.findByText('Finished title')
     // one choice means a plain chip, not a select
     expect(screen.queryByRole('combobox', { name: 'Branch' })).toBeNull()
+  })
+})
+
+describe('FeaturePage hide and show a branch', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  const version = {
+    branch: 'old-x',
+    carrierUserId: 'u1',
+    pushed: true,
+    lastChangeAt: 5,
+    spec: null,
+    plan: null,
+    tasks: null,
+  }
+  const hidden = [{ branch: 'old/y', hiddenBy: { githubLogin: 'bob', name: 'Bob' }, hiddenAt: Date.now() }]
+
+  function renderDetail(detail: unknown) {
+    // the graph canvas observes its size; jsdom has no ResizeObserver
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = url.includes('/hidden-branches')
+        ? {}
+        : url.includes('/features/')
+          ? detail
+          : {
+              board: { inFlight: [], stale: [], recentlyLanded: [], landedDirs: [], members: [] },
+              lastReportAt: {},
+              pending: [],
+              defaultBranch: 'main',
+            }
+      return new Response(init?.method === 'DELETE' ? null : JSON.stringify(body), {
+        status: init?.method === 'DELETE' ? 204 : 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <FeaturePage
+          slug="demo"
+          dir="001-a"
+          tab="versions"
+          branch={undefined}
+          onTabChange={() => {}}
+          onBranchChange={() => {}}
+        />
+      </QueryClientProvider>,
+    )
+    return fetchMock
+  }
+
+  it('hides a branch from its actions menu', async () => {
+    const fetchMock = renderDetail({
+      entry: null,
+      landed: null,
+      versions: [version],
+      hidden: [],
+      shown: { branch: 'old-x', extra: [], docs: { spec: null, plan: null, tasks: null } },
+    })
+    const button = await screen.findByRole('button', { name: 'Branch actions for old-x' })
+    fireEvent.pointerDown(button, { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide this branch' }))
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+      expect(post?.[0]).toBe('/api/projects/demo/hidden-branches')
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({ branch: 'old-x' })
+    })
+  })
+
+  it('lists hidden branches and shows one again', async () => {
+    const fetchMock = renderDetail({
+      entry: null,
+      landed: null,
+      versions: [version],
+      hidden,
+      shown: null,
+    })
+    expect(await screen.findByText('Hidden branches')).toBeTruthy()
+    expect(screen.getByText(/@bob/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Show again/ }))
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+      expect(del?.[0]).toBe('/api/projects/demo/hidden-branches?branch=old%2Fy')
+    })
+  })
+
+  it('renders the page with only hidden branches', async () => {
+    renderDetail({ entry: null, landed: null, versions: [], hidden, shown: null })
+    expect(await screen.findByText('Hidden branches')).toBeTruthy()
+    expect(screen.queryByText('No branch carries this feature.')).toBeNull()
   })
 })

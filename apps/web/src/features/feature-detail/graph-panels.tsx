@@ -1,11 +1,20 @@
 import { buildDependencyGraph, phaseLabel } from '@spec-hub/core'
 import type { FeatureDetail } from '@spec-hub/server/board-query'
 import { useNavigate } from '@tanstack/react-router'
-import { GitBranch, User } from 'lucide-react'
+import { Eye, EyeOff, GitBranch, MoreHorizontal, User } from 'lucide-react'
 import { useMemo } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useBoard } from '@/features/board/board-query'
 import { GraphCanvas } from '@/features/graphs/graph-canvas'
 import { EDGE_SWATCH, GraphLegend, NODE_SWATCH } from '@/features/graphs/legend'
+import { useHideBranch } from '@/features/hide/use-hide-branch'
+import { shortAgo } from '@/lib/time'
 import { buildNeighbourhood, buildVersionElements } from './graph-elements'
 
 function Note({ children }: { children: React.ReactNode }) {
@@ -25,7 +34,34 @@ function Side({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
+function HiddenBranches({ slug, hidden }: { slug: string; hidden: FeatureDetail['hidden'] }) {
+  const { show } = useHideBranch(slug)
+  return (
+    <Side title="Hidden branches">
+      <ul className="space-y-3 text-sm">
+        {hidden.map((h) => (
+          <li key={h.branch} className="space-y-1">
+            <span className="block font-mono text-xs break-all">{h.branch}</span>
+            <span className="block text-xs text-muted-foreground">
+              {h.hiddenBy
+                ? `hidden by @${h.hiddenBy.githubLogin}, ${shortAgo(h.hiddenAt)}`
+                : 'hidden by someone no longer on the hub'}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => show.mutate(h.branch)}>
+              <Eye aria-hidden /> Show again
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        Hidden for everyone until someone commits to the branch.
+      </p>
+    </Side>
+  )
+}
+
 export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureDetail }) {
+  const { hide } = useHideBranch(slug)
   const { board } = useBoard(slug)
   const elements = useMemo(
     () => (board.data ? buildVersionElements(detail, board.data) : null),
@@ -33,7 +69,14 @@ export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureD
   )
   if (board.error) return <Note>Could not load the board: {board.error.message}</Note>
   if (!elements) return <Note>Loading…</Note>
-  if (detail.versions.length === 0) return <Note>No branch carries this feature.</Note>
+  if (detail.versions.length === 0) {
+    if (detail.hidden.length === 0) return <Note>No branch carries this feature.</Note>
+    return (
+      <div className="rounded-xl border bg-card p-4 shadow-xs">
+        <HiddenBranches slug={slug} hidden={detail.hidden} />
+      </div>
+    )
+  }
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
       <div className="grid lg:grid-cols-[minmax(0,1fr)_16rem]">
@@ -55,10 +98,28 @@ export function VersionsPanel({ slug, detail }: { slug: string; detail: FeatureD
                       <span className="text-xs text-muted-foreground">(shown on the board)</span>
                     ) : null}
                   </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="ml-auto size-6 shrink-0"
+                        aria-label={`Branch actions for ${v.branch}`}
+                      >
+                        <MoreHorizontal aria-hidden />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => hide.mutate(v.branch)}>
+                        <EyeOff aria-hidden /> Hide this branch
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </li>
               ))}
             </ul>
           </Side>
+          {detail.hidden.length > 0 ? <HiddenBranches slug={slug} hidden={detail.hidden} /> : null}
         </div>
       </div>
       <GraphLegend
