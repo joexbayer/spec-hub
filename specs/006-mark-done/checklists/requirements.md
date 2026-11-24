@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Hide a leftover branch
+# Specification Quality Checklist: Mark a spec as done
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-11-24
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- "MCP `feature`/`board` tool" and "work map" are product surface names from specs 001/002, not
-  implementation details.
+- Revised 2026-11-24 from "hide a branch" to "mark a spec as done" after the first build was tried
+  on the pilot.
