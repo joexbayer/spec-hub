@@ -325,11 +325,7 @@ function workMapElements(board: Board, lastReportAt: LastReportAt): { nodes: Nod
       type: 'branch',
       position: at,
       ariaLabel: `Branch ${b.branch}`,
-      data: {
-        branch: b.branch,
-        pushed: b.pushed,
-        lastChangeAt: b.lastChangeAt,
-      },
+      data: { branch: b.branch, pushed: b.pushed, lastChangeAt: b.lastChangeAt },
     })
   }
   for (const entry of map.features) {

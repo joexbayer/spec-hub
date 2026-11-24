@@ -145,8 +145,9 @@ clipboard, confirmed by a short message.
   offers no way to mark.
 - **FR-008**: The board row's right-click menu MUST offer "Copy link" (the feature page's address,
   confirmed) and "Mark as done"; every menu item carries an icon.
-- **FR-009**: Marking MUST never change a landed feature's Finished entry, the reporter, or what
-  clones report.
+- **FR-009**: Marking MUST NOT remove a landed feature from Finished or Recently landed, and MUST NOT
+  change the reporter or what clones report. (Its "in flight again" note follows FR-003: marked copies
+  do not count.)
 - **FR-010**: The constitution MUST record this as a named exception to Art. 3.1.
 - **FR-011**: Marks MUST be limited to members of the project.
 

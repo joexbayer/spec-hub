@@ -32,7 +32,7 @@ in parallel agents use their own `SPECHUB_TEST_DB`; don't run `pnpm check` while
 ## Phase 6: Polish
 
 - [X] T015 [P] [deps: T014] @implementation Docs: README "Leftover branches" → "Done specs"; spec 001 web-api pointer to `specs/006-mark-done/contracts/interfaces.md`.
-- [ ] T016 [deps: T015] @routine Run `pnpm check` with the machine quiet; re-run any failing test alone; report.
+- [X] T016 [deps: T015] @routine Run `pnpm check` with the machine quiet; re-run any failing test alone; report.
 
 ## Dependencies
 
