@@ -6,12 +6,19 @@ import { requireProjectRole, requireSession } from '../auth/session.ts'
 import { db } from '../db/client.ts'
 import { clone, membership } from '../db/schema.ts'
 import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
+import { hideBranch, showBranch } from '../services/hide.ts'
 import { zv } from '../validate.ts'
 
 const guard = [requireSession, requireProjectRole()] as const
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters in a directory name is the point
 const featureParam = z.object({ slug: z.string(), dir: z.string().regex(/^[^/\u0000-\u001f]{1,255}$/) })
 const featureQuery = z.object({ branch: z.string().min(1).max(255).optional() })
+const branchName = z
+  .string()
+  .min(1)
+  .max(255)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters in a branch name is the point
+  .regex(/^[^\u0000-\u001f]+$/)
 
 export const boardRoutes = new Hono<AppEnv>()
   .get('/projects/:slug/board', ...guard, async (c) => {
@@ -55,5 +62,23 @@ export const boardRoutes = new Hono<AppEnv>()
       const feature = await loadFeature(db, c.var.project.id, dir, branch)
       if (!feature) return c.json({ error: 'no such feature' }, 404)
       return c.json(feature)
+    },
+  )
+  .post(
+    '/projects/:slug/hidden-branches',
+    ...guard,
+    zv('json', z.object({ branch: branchName })),
+    async (c) => {
+      const hidden = await hideBranch(db, c.var.project.id, c.req.valid('json').branch, c.var.userId)
+      return hidden ? c.json(hidden) : c.json({ error: 'no such branch' }, 404)
+    },
+  )
+  .delete(
+    '/projects/:slug/hidden-branches',
+    ...guard,
+    zv('query', z.object({ branch: branchName })),
+    async (c) => {
+      await showBranch(db, c.var.project.id, c.req.valid('query').branch)
+      return c.body(null, 204)
     },
   )

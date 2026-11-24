@@ -20,6 +20,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { Db } from '../db/client.ts'
 import {
+  branchHide,
   clone,
   cloneBranch,
   cloneFeature,
@@ -75,6 +76,14 @@ export interface FeatureDetail {
   } | null
   versions: VersionSummary[]
   shown: ShownVersion | null
+  // branches carrying this feature whose every copy here is hidden
+  hidden: HiddenBranch[]
+}
+
+export interface HiddenBranch {
+  branch: string
+  hiddenBy: { githubLogin: string; name: string } | null // null: no hider recorded, or the user is gone
+  hiddenAt: number // ms, earliest matching hide
 }
 
 const docColumns = (d: typeof document) => ({
@@ -131,7 +140,7 @@ function factsOf(row: DocRow | null): DocFacts | null {
 }
 
 // One query: every clone_feature of this project's clones whose user is still a member,
-// with branch pushed-state and the three documents' facts.
+// with branch pushed-state, the three documents' facts and the hide matching its (branch, tip), if any.
 async function loadVersionRows(db: Db, projectId: string) {
   // Aliases are cast to the base table type only to reuse docColumns; the SQL uses the alias.
   const specDoc = alias(document, 'spec_doc')
@@ -143,6 +152,7 @@ async function loadVersionRows(db: Db, projectId: string) {
       branch: cloneFeature.branch,
       pushed: cloneBranch.pushed,
       remote: cloneBranch.remote,
+      tip: cloneBranch.tip,
       branchTipAt: cloneBranch.tipAt,
       lastChangeAt: cloneFeature.lastChangeAt,
       carrierUserId: clone.userId,
@@ -152,6 +162,8 @@ async function loadVersionRows(db: Db, projectId: string) {
       spec: docColumns(specDoc as unknown as typeof document),
       plan: docColumns(planDoc as unknown as typeof document),
       tasks: docColumns(tasksDoc as unknown as typeof document),
+      hiddenAt: branchHide.hiddenAt,
+      hiddenBy: branchHide.hiddenBy,
     })
     .from(cloneFeature)
     .innerJoin(clone, eq(clone.id, cloneFeature.cloneId))
@@ -166,11 +178,20 @@ async function loadVersionRows(db: Db, projectId: string) {
     .leftJoin(specDoc, and(eq(specDoc.projectId, projectId), eq(specDoc.oid, cloneFeature.specOid)))
     .leftJoin(planDoc, and(eq(planDoc.projectId, projectId), eq(planDoc.oid, cloneFeature.planOid)))
     .leftJoin(tasksDoc, and(eq(tasksDoc.projectId, projectId), eq(tasksDoc.oid, cloneFeature.tasksOid)))
+    .leftJoin(
+      branchHide,
+      and(
+        eq(branchHide.projectId, clone.projectId),
+        eq(branchHide.branch, cloneBranch.name),
+        eq(branchHide.tip, cloneBranch.tip),
+      ),
+    )
     .where(eq(clone.projectId, projectId))
   return rows.map((r) => ({
     ...r,
     lastChangeAt: r.lastChangeAt.getTime(),
     branchTipAt: r.branchTipAt.getTime(),
+    hiddenAt: r.hiddenAt?.getTime() ?? null,
     docs: { spec: r.spec, plan: r.plan, tasks: r.tasks },
   }))
 }
@@ -263,19 +284,21 @@ export async function loadBoard(db: Db, projectId: string, now = Date.now()): Pr
   ])
   if (!proj) throw new Error(`project ${projectId} not found`)
 
-  const versions: FeatureVersion[] = versionRows.map((r) => ({
-    dir: r.dir,
-    branch: r.branch,
-    pushed: r.pushed,
-    remote: r.remote,
-    lastChangeAt: r.lastChangeAt,
-    branchTipAt: r.branchTipAt,
-    carrierUserId: r.carrierUserId,
-    author: r.authorName ? { name: r.authorName, email: r.authorEmail ?? '' } : null,
-    spec: factsOf(r.spec),
-    plan: factsOf(r.plan),
-    tasks: factsOf(r.tasks),
-  }))
+  const versions: FeatureVersion[] = versionRows
+    .filter((r) => r.hiddenAt === null)
+    .map((r) => ({
+      dir: r.dir,
+      branch: r.branch,
+      pushed: r.pushed,
+      remote: r.remote,
+      lastChangeAt: r.lastChangeAt,
+      branchTipAt: r.branchTipAt,
+      carrierUserId: r.carrierUserId,
+      author: r.authorName ? { name: r.authorName, email: r.authorEmail ?? '' } : null,
+      spec: factsOf(r.spec),
+      plan: factsOf(r.plan),
+      tasks: factsOf(r.tasks),
+    }))
   const landed: LandedFeature[] = landedRows.map((r) => ({
     dir: r.dir,
     firstSeenAt: r.firstSeenAt.getTime(),
@@ -370,13 +393,18 @@ export async function loadFeature(
     .from(project)
     .where(eq(project.id, projectId))
   if (!proj) return null
+  const rows = (await loadVersionRows(db, projectId)).filter((v) => v.dir === dir)
+  const visible = rows.filter((v) => v.hiddenAt === null)
   const versions = dropRemoteCopies(
-    (await loadVersionRows(db, projectId))
-      .filter((v) => v.dir === dir)
-      .map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) })),
+    visible.map((v) => ({ ...v, lastChangeAt: activityAt(v, proj.numbering) })),
   ).sort(compareVersions)
+  const hidden = await hiddenBranches(
+    db,
+    rows.filter((v) => v.hiddenAt !== null),
+    new Set(visible.map((v) => v.branch)),
+  )
   const [landed] = await loadLandedRows(db, projectId, dir)
-  if (versions.length === 0 && !landed) return null
+  if (versions.length === 0 && hidden.length === 0 && !landed) return null
 
   // Reusing loadBoard for the entry costs a few extra queries; fine at this scale.
   const [board, members] = await Promise.all([loadBoard(db, projectId), loadMembers(db, projectId)])
@@ -412,5 +440,38 @@ export async function loadFeature(
       tasks: factsOf(v.tasks),
     })),
     shown,
+    hidden,
   }
+}
+
+// Groups hidden copies by branch name, leaving out a branch that still has a counted copy, with the
+// earliest hide and its hider (looked up in user, so a hider who left the project is still named).
+async function hiddenBranches(
+  db: Db,
+  hiddenRows: { branch: string; hiddenAt: number | null; hiddenBy: string | null }[],
+  visibleBranches: Set<string>,
+): Promise<HiddenBranch[]> {
+  const earliest = new Map<string, { hiddenAt: number; hiddenBy: string | null }>()
+  for (const r of hiddenRows) {
+    if (r.hiddenAt === null || visibleBranches.has(r.branch)) continue
+    const seen = earliest.get(r.branch)
+    if (!seen || r.hiddenAt < seen.hiddenAt)
+      earliest.set(r.branch, { hiddenAt: r.hiddenAt, hiddenBy: r.hiddenBy })
+  }
+  const userIds = [...new Set([...earliest.values()].map((h) => h.hiddenBy).filter((id) => id !== null))]
+  const users =
+    userIds.length === 0
+      ? []
+      : await db
+          .select({ id: user.id, githubLogin: user.githubLogin, name: user.name })
+          .from(user)
+          .where(inArray(user.id, userIds))
+  const userById = new Map(users.map((u) => [u.id, { githubLogin: u.githubLogin, name: u.name }]))
+  return [...earliest]
+    .map(([branch, h]) => ({
+      branch,
+      hiddenBy: h.hiddenBy === null ? null : (userById.get(h.hiddenBy) ?? null),
+      hiddenAt: h.hiddenAt,
+    }))
+    .sort((a, b) => a.branch.localeCompare(b.branch))
 }
