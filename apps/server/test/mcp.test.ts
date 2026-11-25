@@ -1,5 +1,5 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { app } from '../src/app.ts'
 import { db } from '../src/db/client.ts'
@@ -10,6 +10,7 @@ import {
   document,
   landedFeature,
   landPlace,
+  membership,
   user,
 } from '../src/db/schema.ts'
 import { formatBoard } from '../src/mcp/format.ts'
@@ -21,6 +22,8 @@ import {
   createProject,
   createToken,
   createUser,
+  request,
+  sessionCookie,
   type TestProject,
   type TestUser,
   truncateAll,
@@ -376,5 +379,56 @@ describe('MCP endpoint auth', () => {
     const noProject = await post('nope', key)
     expect(noProject.status).toBe(404)
     expect(await noProject.json()).toEqual({ error: 'no such project' })
+  })
+})
+
+describe('MCP agent seen', () => {
+  const seenAt = async (projectId: string, userId: string) =>
+    (
+      await db
+        .select({ at: membership.agentSeenAt })
+        .from(membership)
+        .where(and(eq(membership.projectId, projectId), eq(membership.userId, userId)))
+    )[0]?.at ?? null
+  const setSeen = (projectId: string, userId: string, at: Date) =>
+    db
+      .update(membership)
+      .set({ agentSeenAt: at })
+      .where(and(eq(membership.projectId, projectId), eq(membership.userId, userId)))
+
+  it('the first call sets it and the Connect page reports it', async () => {
+    const { alice, p, key } = await setup()
+    const connectBody = async () =>
+      (await (
+        await request('/api/projects/acme/connect', { headers: { cookie: await sessionCookie(alice) } })
+      ).json()) as { agentSeenAt: string | null }
+    expect((await connectBody()).agentSeenAt).toBeNull()
+    const client = await connect('acme', key)
+    await client.callTool({ name: 'board', arguments: {} })
+    const at = await seenAt(p.id, alice.id)
+    expect(at).not.toBeNull()
+    expect((await connectBody()).agentSeenAt).toBe(at?.toISOString())
+  })
+
+  it('does not rewrite within a minute, and refreshes an older stamp', async () => {
+    const { alice, p, key } = await setup()
+    const client = await connect('acme', key)
+    const recent = new Date(Date.now() - 10_000)
+    await setSeen(p.id, alice.id, recent)
+    await client.callTool({ name: 'board', arguments: {} })
+    expect((await seenAt(p.id, alice.id))?.getTime()).toBe(recent.getTime())
+    const old = new Date(Date.now() - 120_000)
+    await setSeen(p.id, alice.id, old)
+    await client.callTool({ name: 'board', arguments: {} })
+    expect((await seenAt(p.id, alice.id))?.getTime()).toBeGreaterThan(Date.now() - 60_000)
+  })
+
+  it("leaves the same member's row in another project alone", async () => {
+    const { alice, key } = await setup()
+    const other = await createProject('beta')
+    await addMember(other, alice)
+    const client = await connect('acme', key)
+    await client.callTool({ name: 'board', arguments: {} })
+    expect(await seenAt(other.id, alice.id)).toBeNull()
   })
 })

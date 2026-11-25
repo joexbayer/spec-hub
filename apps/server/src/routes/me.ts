@@ -38,12 +38,23 @@ export const meRoutes = new Hono<AppEnv>()
       .where(and(eq(clone.projectId, c.var.project.id), eq(clone.userId, c.var.userId)))
       .groupBy(clone.id, clone.reportedAt)
       .orderBy(asc(clone.reportedAt))
+    const [anyClone] = await db
+      .select({ id: clone.id })
+      .from(clone)
+      .where(eq(clone.projectId, c.var.project.id))
+      .limit(1)
+    const [seen] = await db
+      .select({ at: membership.agentSeenAt })
+      .from(membership)
+      .where(and(eq(membership.projectId, c.var.project.id), eq(membership.userId, c.var.userId)))
     return c.json({
       hubUrl,
       slug,
       mcpUrl: `${hubUrl}/mcp/${slug}`,
       installCommand: `specify extension add spec-hub --from ${hubUrl}/extension/spec-hub.zip`,
       configSnippet: `hub_url: ${hubUrl}\nproject: ${slug}\n`,
+      projectReported: anyClone !== undefined,
+      agentSeenAt: seen?.at?.toISOString() ?? null,
       clones: clones.map((r) => ({
         id: r.id,
         reportedAt: r.reportedAt.toISOString(),

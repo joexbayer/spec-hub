@@ -54,6 +54,8 @@ export const membership = pgTable(
     role: membershipRole('role').notNull(),
     invitedBy: text('invited_by').references(() => user.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // When the hub last saw an MCP call from this member to this project (spec 007); at most one write a minute.
+    agentSeenAt: timestamp('agent_seen_at', { withTimezone: true }),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.githubId] }), index('membership_user_id_idx').on(t.userId)],
 )
