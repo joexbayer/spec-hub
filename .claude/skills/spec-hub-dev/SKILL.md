@@ -32,6 +32,9 @@ description: How to run, test and change Spec Hub locally — Homebrew Postgres,
 - Don't run `pnpm check` while agents run test suites: the reporter end-to-end tests (real git, 20 s
   timeout) then time out in bulk (14 at once, 2026-11-24). Re-run
   `test/reporter/reporter.e2e.test.ts` alone, then the whole check with the machine quiet.
+- Never kill vitest processes you did not start: with parallel agents they may be another agent's
+  run (in 007 one agent killed "its" stale workers and another agent's reporter e2e run died with
+  SIGTERM).
 - Run your own database when another agent may be testing: `SPECHUB_TEST_DB=spechub_x pnpm --filter
   @spec-hub/server test`, then `dropdb spechub_x`.
 - `security_event` is append-only (a trigger raises on UPDATE/DELETE): tests cannot clear it, only
