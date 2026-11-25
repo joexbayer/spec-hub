@@ -63,15 +63,28 @@ See **[docs/self-host.md](docs/self-host.md)**. In short:
 
 ## Connect a repository
 
-Open the hub's **Connect** page. It has every command filled in for your hub and project:
+Open the hub's **Connect** page. It has every command filled in for your hub and project. There are two lanes.
 
-1. Once per repository: add the extension, link it to the project, and commit:
-   ```sh
-   specify extension add spec-hub --from https://<hub>/extension/spec-hub.zip
-   ```
-2. Each developer: create a token on the page and run
-   `sh .specify/extensions/spec-hub/scripts/spec-hub connect`.
-3. Each developer: add the MCP server to their agent (the page has a tab per client).
+**Set up the repository** (once per repository, one person):
+
+1. Add the extension: `specify extension add spec-hub --from https://<hub>/extension/spec-hub.zip`.
+2. Link it to the project in `.specify/extensions/spec-hub/spec-hub-config.yml`.
+3. If the repository sets `core.hooksPath`, install the hooks there with `spec-hub hooks`.
+4. Run `sh .specify/extensions/spec-hub/scripts/spec-hub mcp`. It writes `.mcp.json`. Add the
+   `mcp__spec-hub__*` allow rule to `.claude/settings.json`.
+5. Commit those files.
+
+**Connect yourself** (each developer, each clone):
+
+1. Create a token on the Connect page.
+2. Run `sh .specify/extensions/spec-hub/scripts/spec-hub connect` and paste the token.
+3. Start Claude Code at the repository root and approve the spec-hub server.
+4. Ask "What is the team working on?"
+
+Worktrees need nothing. Another clone runs `connect` and is not asked for the token again.
+
+Something not working? Run `sh .specify/extensions/spec-hub/scripts/spec-hub status`; the Connect
+page lists common problems and fixes.
 
 More on the reporter and agents: [packages/extension/README.md](packages/extension/README.md).
 

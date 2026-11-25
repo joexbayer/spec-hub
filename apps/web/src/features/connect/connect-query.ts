@@ -9,6 +9,10 @@ export type ConnectInfo = {
   installCommand: string
   configSnippet: string
   clones: Clone[]
+  // Any clone of the project, from any member, has reported.
+  projectReported: boolean
+  // When the hub last saw an MCP call from this member to this project.
+  agentSeenAt: string | null
 }
 
 export const connectQuery = (slug: string, poll: boolean) =>

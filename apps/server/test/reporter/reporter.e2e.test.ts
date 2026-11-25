@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
@@ -354,6 +354,26 @@ describe('reporter end to end (real hub, real git)', () => {
     const again = await repo.spechub(['mcp'])
     expect(again.status).toBe(0)
     expect(again.stdout).toContain('already has')
+  })
+
+  it('status reports the agent setup: no server, other address, no token, ready', async () => {
+    const { repo, sb, project } = await connectedClone()
+    const agent = async () =>
+      (await repo.spechub(['status'])).stdout.split('\n').find((l) => l.startsWith('Agent:')) ?? ''
+
+    expect(await agent()).toContain('no spec-hub server in .mcp.json')
+
+    expect((await repo.spechub(['mcp'])).status).toBe(0)
+    expect(await agent()).toContain('ready')
+
+    const path = join(repo.dir, '.mcp.json')
+    const good = readFileSync(path, 'utf8')
+    writeFileSync(path, good.replace(`/mcp/${project.slug}`, '/mcp/other'))
+    expect(await agent()).toContain('another address')
+    writeFileSync(path, good)
+
+    rmSync(join(sb.root, 'xdg', 'spec-hub', 'credentials'))
+    expect(await agent()).toContain('no token yet')
   })
 
   it('mcp prints the entry instead of touching an existing .mcp.json', async () => {

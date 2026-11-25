@@ -31,7 +31,7 @@ Spec 006 adds `POST`/`DELETE /api/projects/:slug/features/:dir/done` and `dir`/`
 | `GET /api/tokens` | signed in | The caller's tokens: id, name, start, created, last used. Never the key. |
 | `POST /api/tokens` `{ name }` | signed in, not waiting | Creates a token with `hub: [report, read]`. Returns the plaintext **once**. Audited. A waiting person gets **403** `{ error: 'waiting for access' }`. |
 | `DELETE /api/tokens/:id` | owner | Revokes the token. Audited. |
-| `GET /api/projects/:slug/connect` | member | The values the connect page needs: hub URL, slug, hooks mode hint, MCP URL. |
+| `GET /api/projects/:slug/connect` | member | The values the connect page needs: hub URL, slug, hooks mode hint, MCP URL; since 007 also `projectReported` and `agentSeenAt` (specs/007-connect-lanes). |
 | `POST /api/projects` `{ slug, name, defaultBranch, numbering }` | hub admin | Creates a project, with the creator as its admin. Audited. |
 | `PATCH /api/projects/:slug` | project admin | Changes `name`, `defaultBranch` or `numbering`. Audited. |
 | `GET /api/projects/:slug/members` | project admin | `[{ githubId, githubLogin, userId, role, name, image, pending }]`, by login. `pending` (no hub user yet, `userId`/`name`/`image` null) shows the login GitHub returned at assign time; once bound, the person's current login. |

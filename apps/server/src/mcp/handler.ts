@@ -2,11 +2,13 @@ import type { CallToolResult, ServerContext } from '@modelcontextprotocol/server
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import type { Numbering } from '@spec-hub/core'
 import { featureNumber, matchFinished } from '@spec-hub/core'
+import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../app-env.ts'
 import { requireMember, requireToken } from '../auth/bearer.ts'
 import { db } from '../db/client.ts'
+import { membership } from '../db/schema.ts'
 import { loadBoard, loadFeature, loadFinished } from '../services/board-query.ts'
 import { ask, loadQueueView, poll, unlock, withQueue } from '../services/landing.ts'
 import {
@@ -199,20 +201,40 @@ const mcp = createMcpHandler(({ authInfo }) => {
   return server
 })
 
+// The Connect page's agent step ticks from this; one conditional UPDATE, so a busy agent writes at most once a minute.
+async function touchAgentSeen(projectId: string, userId: string) {
+  await db
+    .update(membership)
+    .set({ agentSeenAt: sql`now()` })
+    .where(
+      and(
+        eq(membership.projectId, projectId),
+        eq(membership.userId, userId),
+        or(isNull(membership.agentSeenAt), lt(membership.agentSeenAt, sql`now() - interval '1 minute'`)),
+      ),
+    )
+}
+
 // Auth (401/403/404) runs before any MCP processing: the SDK verifies nothing itself.
-export const mcpRoutes = new Hono<AppEnv>().all('/:slug', requireToken('read'), requireMember(), (c) =>
-  mcp.fetch(c.req.raw, {
-    authInfo: {
-      token: '',
-      clientId: c.var.userId,
-      scopes: ['hub:read'],
-      extra: {
-        projectId: c.var.project.id,
-        projectSlug: c.var.project.slug,
-        defaultBranch: c.var.project.defaultBranch,
-        numbering: c.var.project.numbering,
-        userId: c.var.userId,
-      } satisfies Caller,
-    },
-  }),
+export const mcpRoutes = new Hono<AppEnv>().all(
+  '/:slug',
+  requireToken('read'),
+  requireMember(),
+  async (c) => {
+    await touchAgentSeen(c.var.project.id, c.var.userId)
+    return mcp.fetch(c.req.raw, {
+      authInfo: {
+        token: '',
+        clientId: c.var.userId,
+        scopes: ['hub:read'],
+        extra: {
+          projectId: c.var.project.id,
+          projectSlug: c.var.project.slug,
+          defaultBranch: c.var.project.defaultBranch,
+          numbering: c.var.project.numbering,
+          userId: c.var.userId,
+        } satisfies Caller,
+      },
+    })
+  },
 )

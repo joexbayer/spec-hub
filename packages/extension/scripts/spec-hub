@@ -23,7 +23,7 @@ commands:
   connect                store your token, give this clone an id, install the hooks,
                          and send a first report
   disconnect             remove this clone's hooks, id and state (keeps your token)
-  status                 show hub, connection, hooks, private prefixes, last report/error
+  status                 show hub, connection, agent setup (.mcp.json, token), hooks, private prefixes, last report/error
   private                list private branch prefixes (never reported)
   private add <prefix>   stop reporting branches starting with <prefix>
   private remove <prefix>
@@ -1000,6 +1000,18 @@ cmd_status() {
   connected=no
   if git config --local spec-hub.cloneId >/dev/null && has_credentials "$HUB_URL"; then connected=yes; fi
   printf 'Connected:   %s\n' "$connected"
+  if [ -n "$HUB_URL" ] && [ -n "$PROJECT" ]; then
+    url="$HUB_URL/mcp/$PROJECT"
+    if [ ! -f .mcp.json ] || ! grep -qF "$SELF mcp-headers" .mcp.json; then
+      printf 'Agent:       no spec-hub server in .mcp.json; run: sh %s mcp (or pull the branch that has it)\n' "$SELF"
+    elif ! grep -qF "\"$url\"" .mcp.json; then
+      printf 'Agent:       .mcp.json has another address for spec-hub; it must be %s\n' "$url"
+    elif ! has_credentials "$HUB_URL"; then
+      printf 'Agent:       no token yet; run: sh %s connect\n' "$SELF"
+    else
+      printf 'Agent:       ready (%s); in Claude Code, /mcp should show spec-hub connected\n' "$url"
+    fi
+  fi
   S=$(state_dir)
   hooks_location
   if [ -n "$HOOKS_PATH" ]; then

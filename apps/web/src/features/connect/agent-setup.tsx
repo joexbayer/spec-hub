@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { CopyBlock } from '@/components/copy-block'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-const MCP_COMMAND = 'sh .specify/extensions/spec-hub/scripts/spec-hub mcp'
 const TAB_KEY = 'spec-hub.agent-client'
 const CLIENTS = ['claude-code', 'vscode', 'cursor', 'other'] as const
 type Client = (typeof CLIENTS)[number]
@@ -31,18 +30,6 @@ export function AgentSetup({ mcpUrl, tokenKey }: { mcpUrl: string; tokenKey: str
   const token = tokenKey ?? '<your token>'
   const header = `Authorization: Bearer ${token}`
 
-  const claudeCommand = `claude mcp add --transport http spec-hub ${mcpUrl} --header "Authorization: Bearer ${token}"`
-  const claudeProjectFile = json({
-    mcpServers: {
-      'spec-hub': {
-        type: 'http',
-        url: mcpUrl,
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: literal client-side variable syntax, not a JS template
-        headers: { Authorization: 'Bearer ${SPEC_HUB_TOKEN}' },
-      },
-    },
-  })
-  const claudeAllow = json({ permissions: { allow: ['mcp__spec-hub__*'] } })
   const vscodeFile = json({
     servers: {
       'spec-hub': {
@@ -74,21 +61,11 @@ export function AgentSetup({ mcpUrl, tokenKey }: { mcpUrl: string; tokenKey: str
           <TabsTrigger value="other">Other</TabsTrigger>
         </TabsList>
         <TabsContent value="claude-code" className="space-y-3">
-          <CopyBlock label="Add the server for the whole team: writes .mcp.json" value={MCP_COMMAND} />
           <p className="text-sm text-muted-foreground">
-            Commit .mcp.json once and every checkout, worktree and teammate gets the server. It holds no
-            token: the agent reads the one you gave connect.
+            Nothing to copy when the repository is set up. Start Claude Code at the repository root, accept
+            the folder trust prompt and approve the <code className="font-mono text-xs">spec-hub</code>{' '}
+            server.
           </p>
-          <CopyBlock label="Without the Spec Hub extension: .mcp.json" value={claudeProjectFile} />
-          <p className="text-sm text-muted-foreground">
-            Each person sets SPEC_HUB_TOKEN in their shell profile.
-          </p>
-          <CopyBlock label="Or just this checkout" value={claudeCommand} />
-          <p className="text-sm text-muted-foreground">
-            Tip: a leading space keeps the command out of your shell history in bash with ignorespace or zsh
-            with HIST_IGNORE_SPACE.
-          </p>
-          <CopyBlock label="Skip the permission prompts: .claude/settings.json" value={claudeAllow} />
         </TabsContent>
         <TabsContent value="vscode" className="space-y-3">
           <CopyBlock label=".vscode/mcp.json" value={vscodeFile} />
@@ -106,8 +83,8 @@ export function AgentSetup({ mcpUrl, tokenKey }: { mcpUrl: string; tokenKey: str
         </TabsContent>
       </Tabs>
       <p className="text-sm text-muted-foreground">
-        Check it works: ask your agent "What is the team working on?" It should call the{' '}
-        <code className="font-mono text-xs">board</code> tool.
+        Then ask your agent "What is the team working on?" It should call the{' '}
+        <code className="font-mono text-xs">board</code> tool, and this step ticks itself.
       </p>
     </div>
   )

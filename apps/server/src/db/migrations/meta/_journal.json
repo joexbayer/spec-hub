@@ -64,6 +64,13 @@
       "when": 1795520501500,
       "tag": "0008_feature_done",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795593537080,
+      "tag": "0009_agent_seen_at",
+      "breakpoints": true
     }
   ]
 }

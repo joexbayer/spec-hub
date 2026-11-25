@@ -22,6 +22,8 @@ describe('GET /api/projects/:slug/connect', () => {
       mcpUrl: `${hub}/mcp/acme`,
       installCommand: `specify extension add spec-hub --from ${hub}/extension/spec-hub.zip`,
       configSnippet: `hub_url: ${hub}\nproject: acme\n`,
+      projectReported: false,
+      agentSeenAt: null,
       clones: [],
     })
   })
@@ -57,6 +59,30 @@ describe('GET /api/projects/:slug/connect', () => {
     })
     const body = (await res.json()) as { clones: unknown[] }
     expect(body.clones).toEqual([{ id: mine, reportedAt: '2026-01-02T03:04:05.000Z', features: 2 }])
+  })
+
+  it('projectReported turns true once any member reports a clone', async () => {
+    const u = await createUser('amy')
+    const other = await createUser('bob')
+    const p = await createProject('acme')
+    await addMember(p, u)
+    await addMember(p, other)
+    const get = async () =>
+      (await (
+        await request('/api/projects/acme/connect', { headers: { cookie: await sessionCookie(u) } })
+      ).json()) as { projectReported: boolean; clones: unknown[] }
+    expect((await get()).projectReported).toBe(false)
+    await db.insert(clone).values({
+      id: crypto.randomUUID(),
+      projectId: p.id,
+      userId: other.id,
+      commitEmail: 'b@example.test',
+      generatedAt: 1,
+      reportedAt: new Date(),
+    })
+    const after = await get()
+    expect(after.projectReported).toBe(true)
+    expect(after.clones).toEqual([])
   })
 
   it('refuses a non-member', async () => {

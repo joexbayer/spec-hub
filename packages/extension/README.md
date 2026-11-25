@@ -2,7 +2,11 @@
 
 Spec Hub is a Spec Kit extension that silently reports your committed in-flight feature work to your team's Spec Hub. It needs only git (2.31 or later) and curl, and prints nothing in normal use.
 
-## Install
+## Set up the repository
+
+Once per repository, by one person.
+
+Install the extension:
 
 ```sh
 specify extension add spec-hub --from https://<hub>/extension/spec-hub.zip
@@ -10,21 +14,35 @@ specify extension add spec-hub --from https://<hub>/extension/spec-hub.zip
 
 Spec Kit asks one "Untrusted Source" `[y/N]` question for an extension from a URL; answer `y`.
 
-## Connect a clone
+Link it to the project by setting `hub_url` and `project` in `.specify/extensions/spec-hub/spec-hub-config.yml`.
 
-```sh
-sh .specify/extensions/spec-hub/scripts/spec-hub connect
-```
-
-Clone-managed hooks run a copy of the reporter kept in `.git/spec-hub/`, never the checked-out one. Run `connect` again after upgrading the extension or moving the repository.
-
-If the repository sets `core.hooksPath` (husky, `.githooks`), install the hooks there once and commit them:
+If the repository sets `core.hooksPath` (husky, `.githooks`), install the hooks there once:
 
 ```sh
 sh .specify/extensions/spec-hub/scripts/spec-hub hooks "$(git config core.hooksPath)"
 ```
 
 With husky 9 this writes to `.husky/`, not the generated `.husky/_`.
+
+Add the agent server (see [Agents](#agents)):
+
+```sh
+sh .specify/extensions/spec-hub/scripts/spec-hub mcp
+```
+
+Commit the extension, the config, the hooks (if any), `.mcp.json` and `.claude/settings.json`.
+
+## Connect yourself
+
+Each developer, each clone. Create a token on the hub's Connect page, then:
+
+```sh
+sh .specify/extensions/spec-hub/scripts/spec-hub connect
+```
+
+Clone-managed hooks run a copy of the reporter kept in `.git/spec-hub/`, never the checked-out one. Run `connect` again after upgrading the extension or moving the repository. Worktrees need nothing. Another clone runs `connect` and is not asked for the token again.
+
+Check it with `sh .specify/extensions/spec-hub/scripts/spec-hub status`. It also says whether your agent setup is ready.
 
 If you keep `backup/*` branches (for example before a rebase), each one shows up as another branch carrying its feature. Stop reporting them with:
 
@@ -64,8 +82,11 @@ sh .specify/extensions/spec-hub/scripts/spec-hub mcp
 It writes the `spec-hub` server into `.mcp.json` (or prints the entry to paste when the file
 already exists). Commit it: every checkout, worktree and teammate gets the server. The file holds
 no token; its `headersHelper` runs `spec-hub mcp-headers`, which reads the token you gave `connect`.
+With the repository set up, a developer has nothing to configure: run `connect`, start Claude Code
+at the repository root and approve the spec-hub server. Do not add the server with `claude mcp add`;
+a personal entry overrides `.mcp.json`.
 
-Without the extension, commit this `.mcp.json` instead (each person sets `SPEC_HUB_TOKEN` in their
+For teams without the extension, commit this `.mcp.json` instead (each person sets `SPEC_HUB_TOKEN` in their
 shell profile):
 
 ```json
@@ -126,3 +147,16 @@ Commit this rule in `.claude/settings.json` so the tools never prompt:
 {"permissions":{"allow":["mcp__spec-hub__*"]}}
 ```
 
+## Troubleshooting
+
+Run `sh .specify/extensions/spec-hub/scripts/spec-hub status` first. Its `Agent:` line says what is missing.
+
+**Claude Code shows spec-hub "Failed to connect".** It had no token when it connected: Claude Code was started before `connect`, or the folder's trust prompt was not accepted yet. Or the token was revoked. Run `connect`, then `/mcp`, choose spec-hub, and Reconnect. To see the helper's message, run it by hand:
+
+```sh
+CLAUDE_CODE_MCP_SERVER_URL=https://<hub>/mcp/<project> sh .specify/extensions/spec-hub/scripts/spec-hub mcp-headers
+```
+
+**No spec-hub server at all.** Either `.mcp.json` is not on your branch (pull it), or the project-server prompt was declined (run `claude mcp reset-project-choices` and restart), or Claude Code was started in a subdirectory (start it at the repository root).
+
+**A personal entry of the same name wins over `.mcp.json`.** `claude mcp list` warns about it. Remove it with `claude mcp remove spec-hub --scope local`, and again with `--scope user`.
