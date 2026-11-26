@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Document, hubHref } from '@/components/document'
 
@@ -88,5 +88,27 @@ describe('hubHref', () => {
     expect(hubHref('plan.md', 'acme', '?branch=feat-b&tab=spec')).toBe('?branch=feat-b&tab=plan')
     expect(hubHref('../099-x/spec.md', 'acme', '?branch=feat-b')).toBe('/p/acme/f/099-x')
     expect(hubHref('', 'acme')).toBeUndefined()
+  })
+})
+
+describe('Document code blocks', () => {
+  it('highlights a fence with a known language, keeping the text', async () => {
+    const { container } = render(<Document markdown={'```ts\nconst x: number = 1\n```'} />)
+    await waitFor(() => expect(container.querySelector('pre span[style]')).not.toBeNull(), { timeout: 5000 })
+    const keyword = [...container.querySelectorAll<HTMLElement>('pre span[style]')].find(
+      (s) => s.textContent === 'const',
+    )
+    expect(keyword?.style.getPropertyValue('--shiki-light')).toMatch(/^#/)
+    expect(keyword?.style.getPropertyValue('--shiki-dark')).toMatch(/^#/)
+    expect(container.querySelector('pre')?.textContent).toBe('const x: number = 1')
+  })
+
+  it('leaves an unknown language and an untagged block as plain text', async () => {
+    const { container } = render(<Document markdown={'```nosuchlang\na b\n```\n\n```\nc\nd\n```'} />)
+    await new Promise((r) => setTimeout(r, 300))
+    const pres = container.querySelectorAll('pre')
+    expect(pres).toHaveLength(2)
+    expect(container.querySelector('pre span')).toBeNull()
+    expect(pres[1]?.textContent).toBe('c\nd')
   })
 })

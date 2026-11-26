@@ -1,8 +1,18 @@
 import { specLink } from '@spec-hub/core'
-import { Component, type ComponentProps, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
+import {
+  Component,
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react'
 import Markdown, { type Components, type ExtraProps } from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
+import type { ThemedToken } from 'shiki/core'
 import { cn } from '@/lib/utils'
 
 // Only relative URLs (no scheme), http: and https: survive.
@@ -74,10 +84,47 @@ function MermaidDiagram({ code }: { code: string }) {
   return <div className="my-3 overflow-x-auto" dangerouslySetInnerHTML={{ __html: svg }} />
 }
 
-function CodeBlock({ children }: { children: string }) {
+// Shiki's tokens for a fenced block with a language; null (plain text) until they load, for a
+// language Shiki doesn't know, or if loading fails.
+function useTokens(code: string, lang: string | undefined): ThemedToken[][] | null {
+  const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
+  useEffect(() => {
+    setTokens(null)
+    if (!lang) return
+    let cancelled = false
+    import('./code-highlight')
+      .then(({ tokenize }) => tokenize(code, lang))
+      .then((t) => {
+        if (!cancelled) setTokens(t)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [code, lang])
+  return tokens
+}
+
+function CodeBlock({ children, lang }: { children: string; lang?: string }) {
+  const tokens = useTokens(children, lang)
   return (
-    <pre className="my-3 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">
-      <code>{children}</code>
+    <pre className="code-block my-3 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">
+      <code>
+        {tokens
+          ? tokens.map((line, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: lines and tokens have no identity but their position
+              <span key={i}>
+                {i > 0 && '\n'}
+                {line.map((t, j) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: as above
+                  <span key={j} style={t.htmlStyle as CSSProperties}>
+                    {t.content}
+                  </span>
+                ))}
+              </span>
+            ))
+          : children}
+      </code>
     </pre>
   )
 }
@@ -145,7 +192,9 @@ const components: Components = {
     const text = String(children ?? '')
     const lang = /language-(\S+)/.exec(className ?? '')?.[1]
     if (lang === 'mermaid') return <MermaidDiagram code={text.replace(/\n$/, '')} />
-    if (lang || text.includes('\n')) return <CodeBlock>{text.replace(/\n$/, '')}</CodeBlock>
+    if (lang || text.includes('\n')) {
+      return <CodeBlock lang={lang}>{text.replace(/\n$/, '')}</CodeBlock>
+    }
     return (
       <code className={cn('rounded bg-muted px-1 py-0.5 font-mono text-xs', className)} {...p}>
         {children}

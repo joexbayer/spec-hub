@@ -183,3 +183,11 @@
   outline-offset: 2px;
   border-radius: var(--radius-lg);
 }
+
+/* Highlighted code (components/code-highlight.ts): each token carries both themes' colours. */
+.code-block span[style] {
+  color: var(--shiki-light);
+}
+.dark .code-block span[style] {
+  color: var(--shiki-dark);
+}
