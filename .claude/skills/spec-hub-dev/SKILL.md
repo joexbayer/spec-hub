@@ -115,6 +115,17 @@ description: How to run, test and change Spec Hub locally — Homebrew Postgres,
   with `makeSignature(token, ctx.secret)` (as `sessionCookie` in `test/helpers.ts`), run with the hub's
   env; cookie `better-auth.session_token=<token>.<sig>` on `localhost`. A new `BETTER_AUTH_SECRET`
   invalidates old cookies, so mint after restarting with a fresh secret. Delete the script after.
+- Real feature pages to look at (documents, code blocks, extra tabs): after seeding a project and
+  minting a session, `POST /api/tokens {"name":"demo"}` with the cookie (and `origin`) returns
+  `key`; `git clone --no-local` this repo into the scratchpad, check out a feature branch, copy
+  `packages/extension/*` to `.specify/extensions/spec-hub/`, write a config with
+  `hub_url: http://localhost:3001`, `project: <slug>`, `documents: preview.md`, then
+  `XDG_CONFIG_HOME=<scratch>/xdg sh …/spec-hub connect < token` (keeps your real credentials
+  untouched). The specs in `specs/` then show with their previews. Delete the clone, xdg dir and
+  token afterwards.
+- Code blocks are highlighted by Shiki (`apps/web/src/components/code-highlight.ts`, loaded lazily,
+  JavaScript regex engine so the CSP needs no wasm); the light/dark colours come from the
+  `--shiki-light`/`--shiki-dark` variables in `index.css`. Tests wait for `pre span[style]`.
 - Graph start view (`features/graphs/graph-canvas.tsx` `InitialView`): fit the whole graph if it fits at
   zoom ≥ 0.8, otherwise start at the top-left (or centred on `focus`) at 0.8; card text is unreadable
   below that. It computes bounds from `nodeSize`, not measured sizes — xyflow's `fitView` silently did
