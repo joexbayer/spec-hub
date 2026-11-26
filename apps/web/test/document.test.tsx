@@ -2,9 +2,13 @@ import { render, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Document, hubHref } from '@/components/document'
 
-vi.mock('mermaid', () => ({
-  default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: '<svg></svg>' })) },
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async () => ({ svg: '<svg></svg>' })),
 }))
+vi.mock('mermaid', () => ({ default: mermaidMock }))
+const theme = vi.hoisted(() => ({ resolvedTheme: 'light' }))
+vi.mock('next-themes', () => ({ useTheme: () => theme }))
 
 describe('Document (untrusted markdown)', () => {
   it('does not create script elements', () => {
@@ -110,5 +114,21 @@ describe('Document code blocks', () => {
     expect(pres).toHaveLength(2)
     expect(container.querySelector('pre span')).toBeNull()
     expect(pres[1]?.textContent).toBe('c\nd')
+  })
+})
+
+describe('Document mermaid diagrams', () => {
+  it('render with the dark theme in dark mode and the neutral one otherwise', async () => {
+    theme.resolvedTheme = 'light'
+    const md = '```mermaid\ngraph TD; A-->B\n```'
+    mermaidMock.initialize.mockClear()
+    render(<Document markdown={md} />)
+    await waitFor(() => expect(mermaidMock.initialize).toHaveBeenCalled())
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: 'neutral' }))
+    mermaidMock.initialize.mockClear()
+    theme.resolvedTheme = 'dark'
+    render(<Document markdown={md} />)
+    await waitFor(() => expect(mermaidMock.initialize).toHaveBeenCalled())
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: 'dark' }))
   })
 })

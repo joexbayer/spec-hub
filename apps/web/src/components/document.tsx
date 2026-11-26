@@ -1,4 +1,5 @@
 import { specLink } from '@spec-hub/core'
+import { useTheme } from 'next-themes'
 import {
   Component,
   type ComponentProps,
@@ -55,6 +56,8 @@ function MermaidDiagram({ code }: { code: string }) {
       .replace(/[^a-z0-9-]/g, '')
   const [svg, setSvg] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // Mermaid bakes its colours into the SVG, so a theme switch renders it again.
+  const dark = useTheme().resolvedTheme === 'dark'
 
   useEffect(() => {
     let cancelled = false
@@ -63,7 +66,7 @@ function MermaidDiagram({ code }: { code: string }) {
     ;(async () => {
       try {
         const { default: mermaid } = await import('mermaid')
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral' })
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'neutral' })
         const out = await mermaid.render(id, code)
         if (!cancelled) setSvg(out.svg)
       } catch {
@@ -73,7 +76,7 @@ function MermaidDiagram({ code }: { code: string }) {
     return () => {
       cancelled = true
     }
-  }, [code, id])
+  }, [code, id, dark])
 
   if (failed || svg === null) {
     return <CodeBlock>{code}</CodeBlock>
